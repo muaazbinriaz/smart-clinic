@@ -206,8 +206,11 @@ export default function AdminAnalytics() {
               tick={{ fontSize: 11 }}
               width={80}
             />
+            {/* FIXED: allow any type for value to avoid build error */}
             <Tooltip
-              formatter={(v: number) => `PKR ${v.toLocaleString("en-PK")}`}
+              formatter={(value: any) =>
+                `PKR ${(value ?? 0).toLocaleString("en-PK")}`
+              }
             />
             <Bar dataKey="revenue" fill="#10B981" radius={[0, 4, 4, 0]} />
           </BarChart>
