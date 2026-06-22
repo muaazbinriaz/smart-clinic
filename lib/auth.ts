@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 
-// ─── TYPE AUGMENTATION ──────────────────────────────────────────────────────
+// ─── TYPE AUGMENTATIONS (Auth.js v5 all in "next-auth") ─────────────────────
 declare module "next-auth" {
   interface Session {
     user: {
@@ -15,9 +15,6 @@ declare module "next-auth" {
   interface User {
     role: "patient" | "admin" | "doctor";
   }
-}
-
-declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: "patient" | "admin" | "doctor";
@@ -67,7 +64,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     async jwt({ token, user }) {
-      // On sign-in, user object is present — persist role + id into token
       if (user) {
         token.id = user.id as string;
         token.role = user.role;
@@ -76,7 +72,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
 
     async session({ session, token }) {
-      // Forward id + role from token to session so components can read them
       if (token) {
         session.user.id = token.id;
         session.user.role = token.role;
@@ -87,12 +82,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   pages: {
     signIn: "/login",
-    error: "/login", // redirect to login on auth errors
+    error: "/login",
   },
 
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,
   },
 
   secret: process.env.NEXTAUTH_SECRET,
