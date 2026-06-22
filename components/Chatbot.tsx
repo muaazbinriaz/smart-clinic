@@ -3,6 +3,35 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { MessageCircle, X, Send } from "lucide-react";
 
+const CHIPS = [
+  "💰 Fees",
+  "🕐 Timings",
+  "📅 Book Appointment",
+  "👨‍⚕️ Doctors",
+  "📍 Location",
+];
+
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-1">
+        <span
+          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+          style={{ animationDelay: "0ms" }}
+        />
+        <span
+          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+          style={{ animationDelay: "150ms" }}
+        />
+        <span
+          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+          style={{ animationDelay: "300ms" }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Chatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
@@ -13,6 +42,7 @@ export default function Chatbot() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showChips, setShowChips] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -21,11 +51,12 @@ export default function Chatbot() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, loading]);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-    const userMsg = input.trim();
+  const sendMessage = async (text?: string) => {
+    const userMsg = (text ?? input).trim();
+    if (!userMsg) return;
+    setShowChips(false);
     setMessages((prev) => [...prev, { role: "user", text: userMsg }]);
     setInput("");
     setLoading(true);
@@ -38,7 +69,7 @@ export default function Chatbot() {
       });
       const data = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
-    } catch (e) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
@@ -66,7 +97,7 @@ export default function Chatbot() {
         )}
       </button>
 
-      {/* Chat Window — Fixed Height */}
+      {/* Chat Window */}
       {open && (
         <div className="fixed bottom-20 right-6 z-50 w-80 sm:w-96 h-[500px] max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
           {/* Header */}
@@ -82,7 +113,7 @@ export default function Chatbot() {
             </button>
           </div>
 
-          {/* Messages Area — Scrollable */}
+          {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3">
             {messages.map((msg, idx) => (
               <div
@@ -100,9 +131,24 @@ export default function Chatbot() {
                 </div>
               </div>
             ))}
-            {loading && (
-              <div className="text-gray-400 text-xs italic pl-2">Typing...</div>
+
+            {loading && <TypingIndicator />}
+
+            {/* Suggestion chips — only before first user message */}
+            {showChips && !loading && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    onClick={() => sendMessage(chip)}
+                    className="text-xs bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 rounded-full px-3 py-1.5 transition-all font-medium"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
             )}
+
             <div ref={messagesEndRef} />
           </div>
 
@@ -118,7 +164,7 @@ export default function Chatbot() {
             />
             <Button
               size="icon"
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={loading}
               className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl shrink-0"
             >
