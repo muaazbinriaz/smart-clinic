@@ -154,7 +154,7 @@ export default function Chatbot() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl transition-all duration-200"
+        className="fixed bottom-[72px] right-4 md:bottom-6 md:right-6 z-50 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl transition-all duration-200"
         aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? (
@@ -172,17 +172,20 @@ export default function Chatbot() {
       >
         <div className="absolute inset-0 bg-white flex flex-col h-[100dvh]">
           {/* Mobile header */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3 flex items-center gap-3 shrink-0">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3 flex items-center gap-3 shrink-0">
             <div className="h-9 w-9 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-              <Stethoscope className="h-5 w-5 text-white" />
+              <Stethoscope className="h-5 w-5" style={{ color: "#ffffff" }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm leading-tight">
+              <p
+                className="font-semibold text-sm leading-tight"
+                style={{ color: "#ffffff" }}
+              >
                 SmartClinic Assistant
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
-                <p className="text-xs text-blue-100">
+                <p className="text-xs" style={{ color: "#dbeafe" }}>
                   Online · Replies instantly
                 </p>
               </div>
@@ -192,7 +195,7 @@ export default function Chatbot() {
               className="p-2 rounded-full hover:bg-white/20 active:bg-white/30 transition-colors"
               aria-label="Close chat"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5" style={{ color: "#ffffff" }} />
             </button>
           </div>
 
