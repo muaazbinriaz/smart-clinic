@@ -64,6 +64,26 @@ const MODELS = [
   "openrouter/owl-alpha",
 ];
 
+// ── Strip reasoning model "think" blocks before sending to user ───────
+// DeepSeek R1, Phi-4, Qwen3 and others emit <think>...</think> or
+// similar scratchpad sections that must never reach the patient.
+function stripThinkingBlocks(text: string): string {
+  return (
+    text
+      // Remove <think>...</think> blocks (DeepSeek R1, Qwen3, etc.)
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      // Remove <thinking>...</thinking> blocks
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+      // Remove <scratchpad>...</scratchpad> blocks
+      .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/gi, "")
+      // Remove [thinking]...[/thinking] variants
+      .replace(/\[thinking\][\s\S]*?\[\/thinking\]/gi, "")
+      // Collapse multiple blank lines left behind into one
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
+}
+
 async function buildSystemPrompt(): Promise<string> {
   await dbConnect();
   const doctors = await Doctor.find({ available: true }).lean();
@@ -83,9 +103,11 @@ async function buildSystemPrompt(): Promise<string> {
 
   return `You are MediBook Assistant — a warm, professional AI receptionist for MediBook Clinic, Rawalpindi, Pakistan.
 
+CRITICAL: Do NOT output any internal reasoning, thoughts, or scratchpad. Reply ONLY with the final message to the patient — nothing else.
+
 ━━━ LANGUAGE RULE (CRITICAL) ━━━
 • English message → reply in English
-• Roman Urdu (e.g. "doctor ka fee kya hai") → reply in Roman Urdu  
+• Roman Urdu (e.g. "doctor ka fee kya hai") → reply in Roman Urdu
 • Urdu script (اردو) → reply in Urdu script
 • Never mix languages unless the patient does first
 • Never ignore this rule — every single reply must match the patient's language
@@ -103,26 +125,27 @@ ${doctorList}
 Available specialties: ${specialties}
 
 ━━━ RESPONSE FORMAT RULES ━━━
-Always reply in clean, readable plain text. Use these formatting conventions:
-- Use emoji sparingly but effectively (1-2 per response max) to add warmth
+- Reply ONLY with the final patient-facing message. No preamble, no internal notes.
+- Use emoji sparingly (1-2 per response max) to add warmth
 - Use line breaks to separate sections
 - For lists of doctors/fees, put each on its own line
 - Keep responses concise — 3-6 lines max unless the patient asks for details
-- End with a helpful follow-up offer when relevant (e.g. "Would you like to book an appointment?")
+- End with a helpful follow-up offer when relevant
 
 ━━━ EXAMPLE GOOD RESPONSES ━━━
 Q: "What are the doctor fees?"
 A: "Here are our current consultation fees:
-[list each doctor and fee from the live list above]
-💡 You can book online anytime using the Book Appointment button. Need help choosing the right doctor?"
+[list each doctor and fee]
+💡 Book online using the Book Appointment button. Need help choosing a doctor?"
 
 Q: "Kya cardiology available hai?"
 A: "Jee haan! Hamare paas [doctor name] hain jo Cardiology mein specialist hain — fee PKR [X] hai.
-Appointment book karne ke liye website pe 'Book Appointment' button use karein. Koi aur sawal?"
+Appointment book karne ke liye 'Book Appointment' button use karein. Koi aur sawal?"
 
 ━━━ STRICT RULES ━━━
 - NEVER give medical diagnoses, prescriptions, or treatment advice
 - NEVER make up doctor names, fees, or specialties — only use the live list above
+- NEVER output <think>, <thinking>, or any reasoning tags
 - If asked something you don't know, say so honestly and suggest calling the clinic
 - If asked about booking, always direct to the website's Book Appointment button
 - Be warm and helpful, not robotic`;
@@ -161,7 +184,12 @@ async function callOpenRouter(
       return null;
     }
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || null;
+    const raw = data.choices?.[0]?.message?.content?.trim();
+    if (!raw) return null;
+
+    // FIX: strip reasoning/think blocks before returning
+    const clean = stripThinkingBlocks(raw);
+    return clean || null;
   } catch (e) {
     console.warn(`[chat] ${model} → exception:`, e);
     return null;
@@ -204,7 +232,10 @@ async function buildFallbackReply(message: string): Promise<string> {
       q.includes("fee") ||
       q.includes("price") ||
       q.includes("cost") ||
-      q.includes("charges")
+      q.includes("charges") ||
+      q.includes("kia hai") ||
+      q.includes("kya hai") ||
+      q.includes("kitna")
     ) {
       if (!doctors.length)
         return "Please call us at 03XX-XXXXXXX for fee details.";
@@ -224,14 +255,16 @@ async function buildFallbackReply(message: string): Promise<string> {
     q.includes("timing") ||
     q.includes("open") ||
     q.includes("hours") ||
-    q.includes("time")
+    q.includes("time") ||
+    q.includes("waqt")
   )
     return "We're open Monday–Saturday, 9:00 AM to 6:00 PM. Closed on Sundays. 🕘";
   if (
     q.includes("address") ||
     q.includes("location") ||
     q.includes("where") ||
-    q.includes("kahan")
+    q.includes("kahan") ||
+    q.includes("kidhar")
   )
     return "📍 We're located at Committee Chowk, Rawalpindi, Punjab, Pakistan.";
   if (
@@ -249,7 +282,8 @@ async function buildFallbackReply(message: string): Promise<string> {
     q.includes("hi") ||
     q.includes("hello") ||
     q.includes("salam") ||
-    q.includes("hey")
+    q.includes("hey") ||
+    q.includes("assalam")
   )
     return "Hello! 👋 Welcome to MediBook Clinic. I can help with doctor info, fees, timings, or booking. What do you need?";
 
@@ -290,7 +324,7 @@ export async function POST(req: Request) {
 
   const systemPrompt = await buildSystemPrompt().catch(
     () =>
-      "You are a helpful clinic receptionist for MediBook Clinic, Rawalpindi. Answer in the same language the patient uses. Be warm and concise.",
+      "You are a helpful clinic receptionist for MediBook Clinic, Rawalpindi. Answer in the same language the patient uses. Be warm and concise. Do NOT output any internal reasoning or <think> tags.",
   );
 
   const reply = await tryModels(messages, systemPrompt);

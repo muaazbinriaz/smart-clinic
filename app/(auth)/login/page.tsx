@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -19,15 +19,12 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Clear previous errors
     const newErrors: { email?: string; password?: string } = {};
-
     if (!email.trim()) {
       newErrors.email = "Email is required.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       newErrors.email = "Enter a valid email address.";
     }
-
     if (!password) {
       newErrors.password = "Password is required.";
     } else if (password.length < 6) {
@@ -39,8 +36,14 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
+      // FIX: sign out first to clear any stale session cookie from a
+      // previously logged-in account. Without this, if the new credentials
+      // fail (or email case mismatches), NextAuth keeps the old JWT and it
+      // looks like the previous account is logging in.
+      await signOut({ redirect: false });
+
       const res = await signIn("credentials", {
-        email: email.trim(),
+        email: email.trim().toLowerCase(), // FIX: normalize before sending
         password,
         redirect: false,
       });
@@ -48,7 +51,6 @@ export default function LoginPage() {
       if (res?.error) {
         toast.error("Invalid email or password.");
       } else {
-        // Get session to check role, then redirect accordingly
         const { getSession } = await import("next-auth/react");
         const session = await getSession();
         if (session?.user?.role === "admin") {
@@ -85,7 +87,6 @@ export default function LoginPage() {
           </h1>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email field */}
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">
                 Email
@@ -109,7 +110,6 @@ export default function LoginPage() {
               )}
             </div>
 
-            {/* Password field */}
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">
                 Password
@@ -158,7 +158,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Public admin login hint */}
         <p className="text-center text-xs text-gray-400 mt-4">
           Admin? Email: admin@smartclinic.com
         </p>

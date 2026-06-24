@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 
-// ─── TYPE AUGMENTATIONS (Auth.js v5 all in "next-auth") ─────────────────────
+// ─── TYPE AUGMENTATIONS ──────────────────────────────────────────────────────
 declare module "next-auth" {
   interface Session {
     user: {
@@ -35,7 +35,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         await dbConnect();
 
-        const user = await User.findOne({ email: credentials.email }).lean<{
+        // FIX: always lowercase the email before lookup — signup saves it
+        // lowercased, so a case mismatch means findOne returns null and
+        // NextAuth silently keeps the previous session cookie active,
+        // making it look like the old account is logging in.
+        const normalizedEmail = (credentials.email as string)
+          .trim()
+          .toLowerCase();
+
+        const user = await User.findOne({ email: normalizedEmail }).lean<{
           _id: { toString(): string };
           name: string;
           email: string;
@@ -73,7 +81,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async session({ session, token }) {
       if (token) {
-        // Cast to string to avoid 'unknown' type error
         session.user.id = token.id as string;
         session.user.role = token.role as "patient" | "admin" | "doctor";
       }
