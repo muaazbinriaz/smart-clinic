@@ -106,6 +106,20 @@ function isSunday(dateStr: string): boolean {
   return new Date(y, m - 1, d).getDay() === 0;
 }
 
+// Returns true if the slot time has already passed TODAY.
+// Only call this when selectedDate === today — future dates are never in the past.
+function isSlotInPast(timeStr: string): boolean {
+  const now = new Date();
+  const [time, modifier] = timeStr.split(" ");
+  let [hours, minutes] = time.split(":").map(Number);
+  if (modifier === "PM" && hours !== 12) hours += 12;
+  if (modifier === "AM" && hours === 12) hours = 0;
+  // Add a 15-minute buffer so the current slot stays bookable briefly
+  const slotMinutes = hours * 60 + (minutes || 0);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes() + 15;
+  return slotMinutes <= nowMinutes;
+}
+
 // ─── Doctor image with fallback ──────────────────────────────────────
 function getFallbackImage(name: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=128&background=0D6EFD&color=fff&bold=true`;
@@ -586,23 +600,35 @@ export default function BookingModal({
                       <div className="grid grid-cols-3 gap-2">
                         {availableSlots.map((slot) => {
                           const booked = bookedSlots.includes(slot);
+                          // Disable slots that have already passed when today is selected
+                          const isPast =
+                            selectedDate === getTodayString() &&
+                            isSlotInPast(slot);
+                          const disabled = booked || isPast || loadingSlots;
                           return (
                             <button
                               key={slot}
-                              disabled={booked || loadingSlots}
-                              onClick={() => !booked && setSelectedTime(slot)}
+                              disabled={disabled}
+                              onClick={() => !disabled && setSelectedTime(slot)}
                               className={`py-2 text-sm rounded-xl border transition-all ${
                                 selectedTime === slot
                                   ? "bg-blue-600 text-white border-blue-600"
                                   : booked
                                     ? "bg-gray-100 text-gray-400 line-through border-gray-200 cursor-not-allowed"
-                                    : "border-gray-200 hover:border-blue-300"
+                                    : isPast
+                                      ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                                      : "border-gray-200 hover:border-blue-300"
                               }`}
                             >
                               {slot}
                               {booked && (
                                 <span className="block text-xs text-red-400">
                                   Full
+                                </span>
+                              )}
+                              {isPast && !booked && (
+                                <span className="block text-xs text-gray-300">
+                                  Passed
                                 </span>
                               )}
                             </button>
