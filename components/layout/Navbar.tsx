@@ -34,7 +34,7 @@ export default function Navbar({ onBookClick }: NavbarProps) {
             </div>
             <div className="flex flex-col leading-none">
               <span className="font-bold text-base text-slate-900 tracking-tight">
-                MediBook
+                SmartClinic
               </span>
               <span className="text-[10px] text-blue-600 font-medium tracking-wide uppercase">
                 Rawalpindi

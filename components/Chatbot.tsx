@@ -66,7 +66,7 @@ export default function Chatbot() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      text: "Hello! 👋 Welcome to MediBook Clinic.\n\nI can help you with doctor info, fees, timings, or booking. What do you need?",
+      text: "Hello! 👋 Welcome to SmartClinic .\n\nI can help you with doctor info, fees, timings, or booking. What do you need?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -172,7 +172,7 @@ export default function Chatbot() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm leading-tight">
-                MediBook Assistant
+                SmartClinic Assistant
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
