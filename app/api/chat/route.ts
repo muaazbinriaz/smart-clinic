@@ -5,18 +5,63 @@ import Doctor from "@/models/Doctor";
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY!;
 
-// ── Current working free models on OpenRouter (June 2026) ─────────────
+// ── 25+ model waterfall — first success wins ──────────────────────────
 const MODELS = [
-  "openrouter/free", // Auto-router — picks best available free model
-  "openai/gpt-oss-20b:free", // OpenAI open-weight 20B
-  "openai/gpt-oss-120b:free", // OpenAI open-weight 120B
-  "google/gemma-4-31b-it:free", // Google Gemma 4 31B
-  "nvidia/nemotron-3-super-120b-a12b:free", // NVIDIA Nemotron 3 Super
-  "nvidia/nemotron-nano-9b-v2:free", // NVIDIA Nemotron Nano 9B
-  "nvidia/nemotron-3-nano-30b-a3b:free", // NVIDIA Nemotron 3 Nano
-  "z-ai/glm-4.5-air:free", // GLM 4.5 Air
-  "moonshotai/kimi-k2.6:free", // Kimi K2.6
-  "openrouter/owl-alpha", // OpenRouter Owl Alpha
+  // ── OpenRouter auto-router (always try first) ──
+  "openrouter/free",
+
+  // ── OpenAI open-weight ──
+  "openai/gpt-oss-120b:free",
+  "openai/gpt-oss-20b:free",
+
+  // ── Google ──
+  "google/gemma-4-31b-it:free",
+  "google/gemma-3-4b-it:free",
+  "google/gemma-3-12b-it:free",
+  "google/gemma-3-27b-it:free",
+  "google/gemini-2.0-flash-lite-001",
+
+  // ── NVIDIA ──
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "nvidia/nemotron-nano-9b-v2:free",
+  "nvidia/llama-3.1-nemotron-nano-8b-v1:free",
+
+  // ── Meta Llama ──
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "meta-llama/llama-4-scout:free",
+
+  // ── Mistral ──
+  "mistralai/mistral-small-3.1-24b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+  "mistralai/devstral-small:free",
+
+  // ── Qwen ──
+  "qwen/qwen3-8b:free",
+  "qwen/qwen3-14b:free",
+  "qwen/qwen3-32b:free",
+  "qwen/qwen-2.5-7b-instruct:free",
+  "qwen/qwen2.5-vl-3b-instruct:free",
+
+  // ── DeepSeek ──
+  "deepseek/deepseek-r1-distill-qwen-7b:free",
+  "deepseek/deepseek-r1-distill-qwen-1.5b:free",
+  "deepseek/deepseek-chat-v3-5:free",
+
+  // ── Microsoft ──
+  "microsoft/phi-4-reasoning-plus:free",
+  "microsoft/phi-3-mini-128k-instruct:free",
+
+  // ── Others ──
+  "moonshotai/kimi-k2.6:free",
+  "z-ai/glm-4.5-air:free",
+  "tngtech/deepseek-r1t-chimera:free",
+  "openchat/openchat-7b:free",
+  "huggingfaceh4/zephyr-7b-beta:free",
+  "openrouter/owl-alpha",
 ];
 
 async function buildSystemPrompt(): Promise<string> {
@@ -112,7 +157,7 @@ async function callOpenRouter(
     });
     if (!res.ok) {
       const err = await res.text().catch(() => "");
-      console.warn(`[chat] ${model} → HTTP ${res.status} ${err.slice(0, 100)}`);
+      console.warn(`[chat] ${model} → HTTP ${res.status} ${err.slice(0, 80)}`);
       return null;
     }
     const data = await res.json();
