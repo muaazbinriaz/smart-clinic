@@ -282,6 +282,35 @@ export default function Navbar({ onBookClick }: NavbarProps) {
             </div>
           )}
 
+          {/* ── Sign in / Sign out ── */}
+          <div className="px-4 pt-3 pb-2">
+            {status === "loading" ? null : session ? (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  signOut({ callbackUrl: "/" });
+                }}
+                className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-red-500 hover:bg-red-50 transition-all"
+              >
+                <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center">
+                  <LogOut className="h-4 w-4 text-red-500" />
+                </div>
+                <span className="font-semibold text-sm">Sign out</span>
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-all"
+              >
+                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <User className="h-4 w-4 text-slate-500" />
+                </div>
+                <span className="font-semibold text-sm">Sign in</span>
+              </Link>
+            )}
+          </div>
+
           {/* ── Nav links ── */}
           <div className="flex-1 overflow-y-auto py-2">
             <div className="px-4 pt-3 pb-1">
@@ -357,35 +386,6 @@ export default function Navbar({ onBookClick }: NavbarProps) {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* ── Sign in / Sign out ── */}
-            <div className="px-4 pt-3 pb-2">
-              {status === "loading" ? null : session ? (
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    signOut({ callbackUrl: "/" });
-                  }}
-                  className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-red-500 hover:bg-red-50 transition-all"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center">
-                    <LogOut className="h-4 w-4 text-red-500" />
-                  </div>
-                  <span className="font-semibold text-sm">Sign out</span>
-                </button>
-              ) : (
-                <Link
-                  href="/login"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-all"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center">
-                    <User className="h-4 w-4 text-slate-500" />
-                  </div>
-                  <span className="font-semibold text-sm">Sign in</span>
-                </Link>
-              )}
             </div>
           </div>
 

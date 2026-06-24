@@ -154,7 +154,7 @@ export default function Chatbot() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-[67px] right-4 md:bottom-6 md:right-6 z-50 bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl shadow-blue-500/30 transition-all duration-200 animate-pulse-soft"
+        className="fixed bottom-[57px] right-4 md:bottom-6 md:right-6 z-50 bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl shadow-blue-500/30 transition-all duration-200 animate-pulse-soft"
         aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? (
