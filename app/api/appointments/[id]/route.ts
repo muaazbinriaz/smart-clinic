@@ -13,7 +13,7 @@ export async function PATCH(
   const update: Record<string, string | number> = {};
 
   if (body.status !== undefined) {
-    const valid = ["pending", "confirmed", "cancelled"];
+    const valid = ["pending", "confirmed", "cancelled", "completed", "no-show"];
     if (!valid.includes(body.status))
       return NextResponse.json({ error: "Invalid status." }, { status: 400 });
     update.status = body.status;
@@ -22,7 +22,6 @@ export async function PATCH(
   if (body.date !== undefined) update.date = body.date;
   if (body.time !== undefined) update.time = body.time;
 
-  // Rating update ← new
   if (body.rating !== undefined) {
     const r = Number(body.rating);
     if (!Number.isInteger(r) || r < 1 || r > 5)

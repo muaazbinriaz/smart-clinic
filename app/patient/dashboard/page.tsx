@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { EmptyState } from "@/components/ui/empty-state";
+
 import {
   Stethoscope,
   Calendar,
@@ -15,11 +17,12 @@ import {
   Lock,
   Loader2,
   CalendarClock,
-  Star, // ← Added import
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+// ─── Types ──────────────────────────────────────────────────────────
 interface Appointment {
   _id: string;
   name: string;
@@ -28,9 +31,29 @@ interface Appointment {
   date: string;
   time: string;
   message?: string;
-  status: "pending" | "confirmed" | "cancelled";
-  rating?: number | null; // ← Added rating field
+  status: "pending" | "confirmed" | "cancelled" | "completed" | "no-show";
+  rating?: number | null;
   createdAt: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+function parseAppointmentDate(dateStr: string, timeStr: string): Date | null {
+  try {
+    const t = timeStr.toLowerCase();
+    const [hhmm, ampm] = t.split(" ");
+    let [h, m] = hhmm.split(":").map(Number);
+    if (ampm === "pm" && h !== 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    const iso = `${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+    return new Date(iso);
+  } catch {
+    return null;
+  }
+}
+
+function isPast(appt: Appointment): boolean {
+  const d = parseAppointmentDate(appt.date, appt.time || "00:00");
+  return d ? d < new Date() : false;
 }
 
 const TIME_SLOTS = [
@@ -45,6 +68,27 @@ const TIME_SLOTS = [
   "6:00 PM",
 ];
 
+// ─── Status Badge ────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: Appointment["status"] }) {
+  const styles: Record<Appointment["status"], string> = {
+    pending: "bg-yellow-100 text-yellow-700",
+    confirmed: "bg-green-100 text-green-700",
+    cancelled: "bg-red-100 text-red-700",
+    completed: "bg-blue-100 text-blue-700",
+    "no-show": "bg-orange-100 text-orange-700",
+  };
+  return (
+    <span
+      className={`inline-block text-xs px-2.5 py-0.5 rounded-full font-medium ${styles[status]}`}
+    >
+      {status === "no-show"
+        ? "No‑Show"
+        : status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  );
+}
+
+// ─── Star Rating ──────────────────────────────────────────────────────
 function StarRating({
   appointmentId,
   existingRating,
@@ -104,11 +148,7 @@ function StarRating({
           className="disabled:opacity-50"
         >
           <Star
-            className={`h-5 w-5 transition-colors ${
-              s <= (hovered ?? 0)
-                ? "fill-yellow-400 text-yellow-400"
-                : "text-gray-300"
-            }`}
+            className={`h-5 w-5 transition-colors ${s <= (hovered ?? 0) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
           />
         </button>
       ))}
@@ -116,53 +156,7 @@ function StarRating({
   );
 }
 
-function parseAppointmentDate(date: string, time: string): Date {
-  const [timePart, modifier] = time.split(" ");
-  let [hours, minutes] = timePart.split(":").map(Number);
-  if (modifier === "PM" && hours !== 12) hours += 12;
-  if (modifier === "AM" && hours === 12) hours = 0;
-  const d = new Date(date);
-  d.setHours(hours, minutes || 0, 0, 0);
-  return d;
-}
-
-function StatusBadge({ status }: { status: Appointment["status"] }) {
-  const styles = {
-    confirmed: "bg-green-100 text-green-700",
-    cancelled: "bg-red-100 text-red-700",
-    pending: "bg-yellow-100 text-yellow-700",
-  };
-  return (
-    <span
-      className={`inline-block text-xs px-2.5 py-0.5 rounded-full font-medium ${styles[status]}`}
-    >
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: number;
-  icon: React.ElementType;
-  color: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-      <div className={`inline-flex p-2.5 rounded-xl ${color} mb-3`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-sm text-gray-500 mt-1">{label}</p>
-    </div>
-  );
-}
-
+// ─── Reschedule Panel (unchanged) ────────────────────────────────────
 function ReschedulePanel({
   appointment,
   onDone,
@@ -175,14 +169,37 @@ function ReschedulePanel({
   const [date, setDate] = useState(appointment.date);
   const [time, setTime] = useState(appointment.time);
   const [saving, setSaving] = useState(false);
+  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  useEffect(() => {
+    if (appointment.doctor && date) {
+      setLoadingSlots(true);
+      fetch(
+        `/api/appointments/slots?doctor=${encodeURIComponent(appointment.doctor)}&date=${date}`,
+      )
+        .then((r) => r.json())
+        .then((data) => setBookedSlots(data.bookedSlots ?? []))
+        .catch(() => setBookedSlots([]))
+        .finally(() => setLoadingSlots(false));
+    }
+  }, [appointment.doctor, date]);
+
+  useEffect(() => {
+    if (bookedSlots.includes(time)) setTime("");
+  }, [bookedSlots, time]);
 
   const handleSave = async () => {
     if (!date || !time) {
-      toast.error("Please select a date and time.");
+      toast.error("Select date and time.");
+      return;
+    }
+    if (bookedSlots.includes(time)) {
+      toast.error("Slot unavailable.");
       return;
     }
     if (date === appointment.date && time === appointment.time) {
-      toast.error("Please choose a different date or time.");
+      toast.error("Same slot.");
       return;
     }
     setSaving(true);
@@ -207,21 +224,48 @@ function ReschedulePanel({
             className="px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
           />
         </div>
-        <div>
+        <div className="flex-1 min-w-[200px]">
           <label className="text-xs text-gray-500 mb-1 block">New time</label>
-          <select
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-          >
-            {TIME_SLOTS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          {loadingSlots ? (
+            <div className="flex items-center gap-2 px-3 py-2">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+              <span className="text-xs text-gray-400">
+                Checking availability...
+              </span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {TIME_SLOTS.map((t) => {
+                const booked = bookedSlots.includes(t);
+                return (
+                  <button
+                    key={t}
+                    disabled={booked}
+                    onClick={() => setTime(t)}
+                    className={`py-2 text-sm rounded-xl border transition-all ${
+                      time === t
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : booked
+                          ? "bg-gray-100 text-gray-400 line-through border-gray-200 cursor-not-allowed"
+                          : "border-gray-200 hover:border-blue-300"
+                    }`}
+                  >
+                    {t}
+                    {booked && (
+                      <span className="block text-xs text-red-400">Full</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!loadingSlots && bookedSlots.length > 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              {bookedSlots.length} slot(s) already booked
+            </p>
+          )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             onClick={handleSave}
@@ -245,6 +289,7 @@ function ReschedulePanel({
   );
 }
 
+// ─── Main Dashboard Component ────────────────────────────────────────
 export default function PatientDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -259,53 +304,50 @@ export default function PatientDashboard() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
-
-  useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
-    if (status === "authenticated" && session?.user?.role !== "patient") {
-      router.push(
-        session?.user?.role === "admin" ? "/admin" : "/doctor/dashboard",
-      );
-    }
-  }, [status, session, router]);
+  const [profileErrors, setProfileErrors] = useState<{
+    name?: string;
+    phone?: string;
+    newPassword?: string;
+  }>({});
 
   useEffect(() => {
     if (session?.user?.name) setName(session.user.name);
   }, [session]);
 
-  const fetchAppointments = useCallback(async () => {
-    setLoading(true);
+  // ── Fetch appointments with silent refresh support ─────────────────
+  const fetchAppointments = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const res = await fetch("/api/appointments/me");
       if (!res.ok) throw new Error();
       const data = await res.json();
       setAppointments(data);
     } catch {
-      toast.error("Failed to load your appointments.");
+      toast.error("Failed to load appointments.");
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Initial load
   useEffect(() => {
-    if (status === "authenticated") fetchAppointments();
+    if (status === "authenticated") fetchAppointments(true);
   }, [status, fetchAppointments]);
 
   const cancelAppointment = async (id: string) => {
     setCancellingId(id);
     try {
-      const res = await fetch(`/api/appointments/${id}`, {
+      await fetch(`/api/appointments/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "cancelled" }),
       });
-      if (!res.ok) throw new Error();
       setAppointments((prev) =>
         prev.map((a) => (a._id === id ? { ...a, status: "cancelled" } : a)),
       );
-      toast.success("Appointment cancelled.");
+      toast.success("Cancelled.");
     } catch {
-      toast.error("Failed to cancel appointment.");
+      toast.error("Failed.");
     } finally {
       setCancellingId(null);
     }
@@ -317,39 +359,47 @@ export default function PatientDashboard() {
     time: string,
   ) => {
     try {
-      const res = await fetch(`/api/appointments/${id}`, {
+      await fetch(`/api/appointments/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, time }),
       });
-      if (!res.ok) throw new Error();
       setAppointments((prev) =>
         prev.map((a) => (a._id === id ? { ...a, date, time } : a)),
       );
       setReschedulingId(null);
-      toast.success("Appointment rescheduled.");
+      toast.success("Rescheduled.");
     } catch {
-      toast.error("Failed to reschedule appointment.");
+      toast.error("Failed.");
     }
   };
 
   const saveProfile = async () => {
+    const newErrors: { name?: string; phone?: string; newPassword?: string } =
+      {};
+
+    if (!name.trim()) newErrors.name = "Name is required.";
+    if (phone.trim() && !/^03\d{2}-\d{7}$/.test(phone.trim())) {
+      newErrors.phone = "Enter a valid number (03XX-XXXXXXX).";
+    }
     if (newPassword && newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters.");
-      return;
+      newErrors.newPassword = "Password must be at least 6 characters.";
     }
     if (newPassword && !currentPassword) {
-      toast.error("Enter your current password to set a new one.");
-      return;
+      newErrors.newPassword = "Current password is required to set a new one.";
     }
+
+    setProfileErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
     setSavingProfile(true);
     try {
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name,
-          phone,
+          name: name.trim(),
+          phone: phone.trim() || undefined,
           ...(newPassword ? { currentPassword, newPassword } : {}),
         }),
       });
@@ -359,38 +409,32 @@ export default function PatientDashboard() {
       setCurrentPassword("");
       setNewPassword("");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to update profile.",
-      );
+      toast.error(err instanceof Error ? err.message : "Failed.");
     } finally {
       setSavingProfile(false);
     }
   };
 
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-pulse text-gray-400 text-sm">Loading...</div>
-      </div>
-    );
-  }
+  // No status === "loading" unmount – middleware handles auth
 
   const now = new Date();
   const upcoming = appointments.filter(
     (a) =>
       a.status !== "cancelled" &&
+      a.status !== "no-show" &&
       parseAppointmentDate(a.date, a.time || "00:00") >= now,
   );
   const past = appointments.filter(
     (a) =>
-      a.status !== "cancelled" &&
+      (a.status === "confirmed" || a.status === "completed") &&
       parseAppointmentDate(a.date, a.time || "00:00") < now,
   );
-  const cancelled = appointments.filter((a) => a.status === "cancelled");
+  const cancelled = appointments.filter(
+    (a) => a.status === "cancelled" || a.status === "no-show",
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="bg-white border-b border-gray-100">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
           <div className="bg-blue-600 rounded-lg p-1.5">
@@ -401,14 +445,14 @@ export default function PatientDashboard() {
           </span>
           <div className="ml-auto flex items-center gap-3">
             <button
-              onClick={fetchAppointments}
-              className="p-2 text-gray-400 hover:text-blue-600 transition-colors rounded-lg hover:bg-blue-50"
+              onClick={() => fetchAppointments(false)} // silent refresh
+              className="p-2 text-gray-400 hover:text-blue-600"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
             <button
               onClick={() => signOut({ callbackUrl: "/" })}
-              className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-colors"
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600"
             >
               <LogOut className="h-4 w-4" /> Sign out
             </button>
@@ -422,11 +466,10 @@ export default function PatientDashboard() {
             Welcome back, {session?.user?.name?.split(" ")[0]} 👋
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            Here's what's happening with your appointments.
+            Here's your appointment summary.
           </p>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <KpiCard
             label="Upcoming"
             value={upcoming.length}
@@ -456,7 +499,6 @@ export default function PatientDashboard() {
           </Button>
         </div>
 
-        {/* Appointments list */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h2 className="font-semibold text-gray-900">Your appointments</h2>
@@ -469,19 +511,17 @@ export default function PatientDashboard() {
                   <div className="h-3 bg-gray-100 rounded w-1/2" />
                 </div>
               ))}
-
             {!loading && appointments.length === 0 && (
-              <div className="px-5 py-12 text-center text-gray-400">
-                <Calendar className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No appointments yet.</p>
-              </div>
+              <EmptyState
+                icon={Calendar}
+                title="No appointments yet"
+                description="Book your first appointment from the homepage."
+              />
             )}
-
             {!loading &&
               appointments.map((a) => (
                 <div key={a._id}>
-                  {/* Appointment row */}
-                  <div className="px-5 py-4 flex flex-wrap items-center gap-4">
+                  <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
                     <div className="flex-1 min-w-40">
                       <p className="text-sm font-medium text-gray-900">
                         {a.doctor}
@@ -491,42 +531,49 @@ export default function PatientDashboard() {
                       </p>
                     </div>
                     <StatusBadge status={a.status} />
-                    {a.status !== "cancelled" && (
-                      <div className="flex gap-2">
-                        {parseAppointmentDate(a.date, a.time || "00:00") >=
-                          now && (
+                    {a.status !== "cancelled" &&
+                      a.status !== "no-show" &&
+                      a.status !== "completed" && (
+                        <div className="flex flex-wrap gap-2">
+                          {parseAppointmentDate(a.date, a.time || "00:00") >=
+                            now && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-blue-600 border-blue-200 hover:bg-blue-50 rounded-lg text-xs h-7 px-3"
+                              onClick={() =>
+                                setReschedulingId(
+                                  reschedulingId === a._id ? null : a._id,
+                                )
+                              }
+                            >
+                              <CalendarClock className="h-3 w-3 mr-1" />
+                              {reschedulingId === a._id
+                                ? "Close"
+                                : "Reschedule"}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-blue-600 border-blue-200 hover:bg-blue-50 rounded-lg text-xs h-7 px-3"
-                            onClick={() =>
-                              setReschedulingId(
-                                reschedulingId === a._id ? null : a._id,
-                              )
-                            }
+                            disabled={cancellingId === a._id}
+                            className="text-red-600 border-red-200 hover:bg-red-50 rounded-lg text-xs h-7 px-3"
+                            onClick={() => cancelAppointment(a._id)}
                           >
-                            <CalendarClock className="h-3 w-3 mr-1" />
-                            {reschedulingId === a._id ? "Close" : "Reschedule"}
+                            {cancellingId === a._id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              "Cancel"
+                            )}
                           </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={cancellingId === a._id}
-                          className="text-red-600 border-red-200 hover:bg-red-50 rounded-lg text-xs h-7 px-3"
-                          onClick={() => cancelAppointment(a._id)}
-                        >
-                          {cancellingId === a._id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Cancel"
-                          )}
-                        </Button>
-                      </div>
+                        </div>
+                      )}
+                    {a.status === "no-show" && (
+                      <span className="text-xs text-gray-400">
+                        You missed this appointment.
+                      </span>
                     )}
                   </div>
-
-                  {/* Inline reschedule panel */}
                   {reschedulingId === a._id && (
                     <ReschedulePanel
                       appointment={a}
@@ -534,24 +581,22 @@ export default function PatientDashboard() {
                       onCancel={() => setReschedulingId(null)}
                     />
                   )}
-
-                  {/* ← Star rating for confirmed past appointments */}
-                  {a.status === "confirmed" &&
-                    parseAppointmentDate(a.date, a.time || "00:00") < now && (
-                      <div className="px-5 pb-4">
-                        <StarRating
-                          appointmentId={a._id}
-                          existingRating={a.rating ?? null}
-                          onRated={(id, rating) =>
-                            setAppointments((prev) =>
-                              prev.map((apt) =>
-                                apt._id === id ? { ...apt, rating } : apt,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                    )}
+                  {(a.status === "completed" ||
+                    (a.status === "confirmed" && isPast(a))) && (
+                    <div className="px-5 pb-4">
+                      <StarRating
+                        appointmentId={a._id}
+                        existingRating={a.rating ?? null}
+                        onRated={(id, rating) =>
+                          setAppointments((prev) =>
+                            prev.map((apt) =>
+                              apt._id === id ? { ...apt, rating } : apt,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
           </div>
@@ -569,9 +614,22 @@ export default function PatientDashboard() {
               </label>
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (profileErrors.name)
+                    setProfileErrors({ ...profileErrors, name: undefined });
+                }}
+                className={`w-full px-3 py-2 text-sm border rounded-xl focus:ring-2 outline-none ${
+                  profileErrors.name
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
               />
+              {profileErrors.name && (
+                <p className="text-red-500 text-xs mt-1">
+                  {profileErrors.name}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">
@@ -579,10 +637,23 @@ export default function PatientDashboard() {
               </label>
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  if (profileErrors.phone)
+                    setProfileErrors({ ...profileErrors, phone: undefined });
+                }}
                 placeholder="03XX-XXXXXXX"
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                className={`w-full px-3 py-2 text-sm border rounded-xl focus:ring-2 outline-none ${
+                  profileErrors.phone
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
               />
+              {profileErrors.phone && (
+                <p className="text-red-500 text-xs mt-1">
+                  {profileErrors.phone}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">
@@ -607,13 +678,31 @@ export default function PatientDashboard() {
                 placeholder="Current password"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
               />
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New password"
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <div>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    if (profileErrors.newPassword)
+                      setProfileErrors({
+                        ...profileErrors,
+                        newPassword: undefined,
+                      });
+                  }}
+                  placeholder="New password"
+                  className={`w-full px-3 py-2 text-sm border rounded-xl focus:ring-2 outline-none ${
+                    profileErrors.newPassword
+                      ? "border-red-300 focus:ring-red-500"
+                      : "border-slate-200 focus:ring-blue-500"
+                  }`}
+                />
+                {profileErrors.newPassword && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {profileErrors.newPassword}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
           <Button
@@ -628,6 +717,28 @@ export default function PatientDashboard() {
           </Button>
         </div>
       </main>
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  color: string;
+}) {
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+      <div className={`inline-flex p-2.5 rounded-xl ${color} mb-3`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-sm text-gray-500 mt-1">{label}</p>
     </div>
   );
 }

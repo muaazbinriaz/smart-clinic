@@ -5,60 +5,75 @@ import User from "@/models/User";
 import { auth } from "@/lib/auth";
 
 export async function PATCH(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  const body = await req.json();
-  const { name, phone, currentPassword, newPassword } = body as {
-    name?: string;
-    phone?: string;
-    currentPassword?: string;
-    newPassword?: string;
-  };
+    await dbConnect();
+    const body = await req.json();
+    const { name, phone, currentPassword, newPassword } = body;
 
-  await dbConnect();
-
-  const user = await User.findById(session.user.id);
-  if (!user) {
-    return NextResponse.json({ error: "User not found." }, { status: 404 });
-  }
-
-  if (typeof name === "string" && name.trim().length > 0) {
-    user.name = name.trim();
-  }
-  if (typeof phone === "string") {
-    user.phone = phone.trim();
-  }
-
-  if (newPassword) {
-    if (!currentPassword) {
+    // ── Validation ──────────────────────────────────────────────────
+    if (name !== undefined && (typeof name !== "string" || !name.trim())) {
       return NextResponse.json(
-        { error: "Current password is required to set a new password." },
+        { error: "Name cannot be empty." },
         { status: 400 },
       );
     }
-    const match = await bcrypt.compare(currentPassword, user.password);
-    if (!match) {
+    if (
+      phone !== undefined &&
+      typeof phone === "string" &&
+      phone.trim() &&
+      !/^03\d{2}-?\d{7}$/.test(phone.replace(/\s/g, ""))
+    ) {
       return NextResponse.json(
-        { error: "Current password is incorrect." },
+        { error: "Enter a valid Pakistani phone number." },
         { status: 400 },
       );
     }
-    if (newPassword.length < 6) {
-      return NextResponse.json(
-        { error: "New password must be at least 6 characters." },
-        { status: 400 },
-      );
+    if (newPassword) {
+      if (!currentPassword) {
+        return NextResponse.json(
+          { error: "Current password is required to set a new one." },
+          { status: 400 },
+        );
+      }
+      if (newPassword.length < 6) {
+        return NextResponse.json(
+          { error: "New password must be at least 6 characters." },
+          { status: 400 },
+        );
+      }
     }
-    user.password = await bcrypt.hash(newPassword, 10);
+
+    const update: Record<string, string> = {};
+    if (name) update.name = name.trim();
+    if (phone !== undefined) update.phone = phone.trim() || "";
+
+    if (newPassword) {
+      const user = await User.findById(session.user.id).select("password");
+      if (!user)
+        return NextResponse.json({ error: "User not found." }, { status: 404 });
+
+      const valid = await bcrypt.compare(currentPassword, user.password);
+      if (!valid)
+        return NextResponse.json(
+          { error: "Current password is incorrect." },
+          { status: 400 },
+        );
+
+      update.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    await User.findByIdAndUpdate(session.user.id, update);
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Profile update error:", err);
+    return NextResponse.json(
+      { error: "Something went wrong." },
+      { status: 500 },
+    );
   }
-
-  await user.save();
-
-  return NextResponse.json({
-    success: true,
-    user: { name: user.name, phone: user.phone, email: user.email },
-  });
 }

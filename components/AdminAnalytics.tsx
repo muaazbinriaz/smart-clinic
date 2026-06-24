@@ -13,17 +13,16 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-const FEES: Record<string, number> = {
-  "Dr. Ahmed": 3000,
-  "Dr. Husnain Ali": 2000,
-  "Dr. Ali": 2500,
-  "Dr. Fatima": 1500,
-};
-
 interface Appointment {
   doctor: string;
   status: string;
   createdAt: string;
+}
+
+interface Doctor {
+  _id: string;
+  name: string;
+  fee: number;
 }
 
 interface DailyPoint {
@@ -41,13 +40,27 @@ interface DoctorPoint {
 
 export default function AdminAnalytics() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [doctorFees, setDoctorFees] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/appointments")
-      .then((r) => r.json())
-      .then((data) => {
-        setAppointments(data);
+    // Fetch both appointments and doctors in parallel
+    Promise.all([
+      fetch("/api/appointments").then((r) => r.json()),
+      fetch("/api/doctors").then((r) => r.json()),
+    ])
+      .then(([apptData, doctorData]) => {
+        setAppointments(apptData);
+        // Build a fee map from the live doctor list
+        const feeMap: Record<string, number> = {};
+        if (Array.isArray(doctorData)) {
+          (doctorData as Doctor[]).forEach((doc) => {
+            if (doc.name && doc.fee) {
+              feeMap[doc.name] = doc.fee;
+            }
+          });
+        }
+        setDoctorFees(feeMap);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -82,17 +95,36 @@ export default function AdminAnalytics() {
   });
   const dailyData = Object.values(dailyMap);
 
-  // ── Per-doctor stats ──────────────────────────────────────────
+  // ── Per‑doctor stats (fully dynamic) ─────────────────────────
   const doctorMap: Record<string, DoctorPoint> = {};
-  Object.keys(FEES).forEach((d) => {
-    doctorMap[d] = { doctor: d.replace("Dr. ", ""), bookings: 0, revenue: 0 };
+
+  // Initialise with all doctors we have fees for
+  Object.keys(doctorFees).forEach((name) => {
+    doctorMap[name] = {
+      doctor: name.replace("Dr. ", ""),
+      bookings: 0,
+      revenue: 0,
+    };
   });
+
+  // Also catch any appointments for doctors that might not be in the fee map
+  // (shouldn't happen, but safe)
   appointments.forEach((a) => {
-    if (doctorMap[a.doctor] && a.status === "confirmed") {
+    if (!doctorMap[a.doctor]) {
+      doctorMap[a.doctor] = {
+        doctor: a.doctor.replace("Dr. ", ""),
+        bookings: 0,
+        revenue: 0,
+      };
+    }
+    if (a.status === "confirmed") {
       doctorMap[a.doctor].bookings++;
-      doctorMap[a.doctor].revenue += FEES[a.doctor] ?? 0;
+      // Use fee from dynamic map, or 0 if unknown
+      const fee = doctorFees[a.doctor] || 0;
+      doctorMap[a.doctor].revenue += fee;
     }
   });
+
   const doctorData = Object.values(doctorMap);
 
   // ── KPI cards ─────────────────────────────────────────────────
@@ -206,7 +238,6 @@ export default function AdminAnalytics() {
               tick={{ fontSize: 11 }}
               width={80}
             />
-            {/* FIXED: allow any type for value to avoid build error */}
             <Tooltip
               formatter={(value: any) =>
                 `PKR ${(value ?? 0).toLocaleString("en-PK")}`

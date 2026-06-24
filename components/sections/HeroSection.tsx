@@ -95,13 +95,12 @@ export default function HeroSection({
             >
               Book Appointment <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="text-lg px-8 py-6 rounded-2xl border-2"
+            <a
+              href="tel:+923001234567"
+              className="inline-flex items-center justify-center gap-2 text-lg px-8 py-2 rounded-2xl border-2 border-gray-200 bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700"
             >
-              <Phone className="mr-2 h-5 w-5" /> Call Now
-            </Button>
+              <Phone className="h-5 w-5 text-green-600" /> Call Now
+            </a>
           </div>
 
           {/* Counters */}

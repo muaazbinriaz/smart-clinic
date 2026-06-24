@@ -4,8 +4,8 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import Chatbot from "@/components/Chatbot";
 import { SessionProvider } from "next-auth/react";
-import { auth } from "@/lib/auth";
-import PwaRegistration from "@/components/PwaRegistration"; // ← new import
+import PwaRegistration from "@/components/PwaRegistration";
+import PageLoader from "@/components/PageLoader";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     "AI doctor",
   ],
   manifest: "/manifest.json",
-  themeColor: "#2563EB",
+
   appleWebApp: {
     capable: true,
     title: "SmartClinic AI",
@@ -60,16 +60,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
+export const viewport = {
+  themeColor: "#2563EB",
+};
+
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <SessionProvider session={session}>
+      <body className={inter.className} suppressHydrationWarning>
+        <SessionProvider>
+          <PageLoader />
           <PwaRegistration />
           {children}
           <Chatbot />

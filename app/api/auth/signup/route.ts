@@ -5,26 +5,36 @@ import User from "@/models/User";
 
 export async function POST(req: Request) {
   try {
-    const { name, email, phone, password } = await req.json();
-
-    if (!name || !email || !password) {
-      return NextResponse.json(
-        { error: "Name, email, and password are required." },
-        { status: 400 },
-      );
-    }
-
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters." },
-        { status: 400 },
-      );
-    }
-
     await dbConnect();
+    const body = await req.json();
+    const { name, email, phone, password } = body;
+
+    // ── Validation ──────────────────────────────────────────────────
+    const errors: string[] = [];
+    if (!name || typeof name !== "string" || !name.trim())
+      errors.push("Name is required.");
+    if (
+      !email ||
+      typeof email !== "string" ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    )
+      errors.push("A valid email is required.");
+    if (!password || typeof password !== "string" || password.length < 6)
+      errors.push("Password must be at least 6 characters.");
+    if (
+      phone &&
+      typeof phone === "string" &&
+      phone.trim() &&
+      !/^03\d{2}-?\d{7}$/.test(phone.replace(/\s/g, ""))
+    )
+      errors.push("Enter a valid Pakistani phone number (03XX-XXXXXXX).");
+
+    if (errors.length > 0) {
+      return NextResponse.json({ error: errors.join(" ") }, { status: 400 });
+    }
 
     // Check for existing user
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
     if (existing) {
       return NextResponse.json(
         { error: "An account with this email already exists." },
@@ -32,24 +42,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    const user = await User.create({
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await User.create({
       name: name.trim(),
-      email: email.toLowerCase().trim(),
-      phone: phone?.trim() || "",
+      email: email.trim().toLowerCase(),
+      phone: phone?.trim() || undefined,
       password: hashedPassword,
-      role: "patient", // all self-registered users are patients
+      role: "patient",
     });
 
-    return NextResponse.json(
-      { success: true, id: user._id.toString() },
-      { status: 201 },
-    );
+    return NextResponse.json({ success: true }, { status: 201 });
   } catch (err) {
-    console.error("[signup]", err);
+    console.error("Signup error:", err);
     return NextResponse.json(
-      { error: "Server error. Please try again." },
+      { error: "Something went wrong." },
       { status: 500 },
     );
   }

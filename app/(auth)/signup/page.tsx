@@ -1,175 +1,252 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
-import { Stethoscope, Eye, EyeOff, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Loader2, Stethoscope } from "lucide-react";
+import { toast } from "sonner";
 
 export default function SignupPage() {
   const router = useRouter();
-
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    password: "",
-  });
-  const [showPwd, setShowPwd] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const set =
-    (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((prev) => ({ ...prev, [k]: e.target.value }));
+  const [errors, setErrors] = useState<{
+    name?: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    confirmPassword?: string;
+  }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.password.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
+
+    const newErrors: typeof errors = {};
+
+    // Name
+    if (!name.trim()) {
+      newErrors.name = "Full name is required.";
     }
+
+    // Email
+    if (!email.trim()) {
+      newErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      newErrors.email = "Enter a valid email address.";
+    }
+
+    // Phone (optional but validate format if provided)
+    if (phone.trim() && !/^03\d{2}-\d{7}$/.test(phone.trim())) {
+      newErrors.phone = "Enter a valid Pakistani number (03XX-XXXXXXX).";
+    }
+
+    // Password
+    if (!password) {
+      newErrors.password = "Password is required.";
+    } else if (password.length < 6) {
+      newErrors.password = "Password must be at least 6 characters.";
+    }
+
+    // Confirm password
+    if (password !== confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match.";
+    }
+
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
     setLoading(true);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim() || undefined,
+          password,
+        }),
+      });
 
-    const res = await fetch("/api/auth/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      toast.error(data.error || "Signup failed. Please try again.");
+      if (res.ok) {
+        toast.success("Account created! Please sign in.");
+        router.push("/login");
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Signup failed.");
+      }
+    } catch {
+      toast.error("Network error. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Auto sign-in after successful signup
-    await signIn("credentials", {
-      email: form.email,
-      password: form.password,
-      redirect: false,
-    });
-
-    toast.success("Account created! Welcome to SmartClinic AI.");
-    router.push("/patient/dashboard");
-    router.refresh();
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-white px-4 py-8">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-sm">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="bg-blue-600 rounded-xl p-2">
-            <Stethoscope className="h-6 w-6 text-white" />
+        <div className="flex items-center gap-2 justify-center mb-8">
+          <div className="bg-blue-600 rounded-lg p-1.5">
+            <Stethoscope className="h-5 w-5 text-white" />
           </div>
-          <span className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+          <span className="font-bold text-xl bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
             SmartClinic AI
           </span>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">
-            Create account
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <h1 className="text-lg font-semibold text-gray-900 text-center mb-6">
+            Create your account
           </h1>
-          <p className="text-gray-500 text-sm mb-6">
-            Book appointments and track your health
-          </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="text-xs font-medium text-gray-500 mb-1 block">
                 Full Name
               </label>
               <input
                 type="text"
-                value={form.name}
-                onChange={set("name")}
-                placeholder="Muhammad Ali"
-                required
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (errors.name) setErrors({ ...errors, name: undefined });
+                }}
+                placeholder="Your full name"
+                className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
+                  errors.name
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
               />
+              {errors.name && (
+                <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+              )}
             </div>
 
+            {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="text-xs font-medium text-gray-500 mb-1 block">
                 Email
               </label>
               <input
                 type="email"
-                value={form.email}
-                onChange={set("email")}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errors.email) setErrors({ ...errors, email: undefined });
+                }}
                 placeholder="you@example.com"
-                required
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
+                  errors.email
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
               />
+              {errors.email && (
+                <p className="text-red-500 text-xs mt-1">{errors.email}</p>
+              )}
             </div>
 
+            {/* Phone */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone{" "}
-                <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">
+                Phone (optional)
               </label>
               <input
                 type="tel"
-                value={form.phone}
-                onChange={set("phone")}
+                value={phone}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  if (errors.phone) setErrors({ ...errors, phone: undefined });
+                }}
                 placeholder="03XX-XXXXXXX"
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
+                  errors.phone
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
               />
+              {errors.phone && (
+                <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
+              )}
             </div>
 
+            {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="text-xs font-medium text-gray-500 mb-1 block">
                 Password
               </label>
-              <div className="relative">
-                <input
-                  type={showPwd ? "text" : "password"}
-                  value={form.password}
-                  onChange={set("password")}
-                  placeholder="Min 8 characters"
-                  required
-                  minLength={8}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 pr-11 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPwd(!showPwd)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPwd ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errors.password)
+                    setErrors({ ...errors, password: undefined });
+                }}
+                placeholder="Min. 6 characters"
+                className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
+                  errors.password
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
+              />
+              {errors.password && (
+                <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+              )}
+            </div>
+
+            {/* Confirm Password */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (errors.confirmPassword)
+                    setErrors({ ...errors, confirmPassword: undefined });
+                }}
+                placeholder="Re-enter password"
+                className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
+                  errors.confirmPassword
+                    ? "border-red-300 focus:ring-red-500"
+                    : "border-slate-200 focus:ring-blue-500"
+                }`}
+              />
+              {errors.confirmPassword && (
+                <p className="text-red-500 text-xs mt-1">
+                  {errors.confirmPassword}
+                </p>
+              )}
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-semibold transition-all"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold"
             >
               {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating
-                  account…
-                </>
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Create Account"
+                "Create account"
               )}
             </Button>
           </form>
 
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <p className="text-center text-sm text-gray-500 mt-4">
             Already have an account?{" "}
             <Link
               href="/login"
-              className="text-blue-600 font-medium hover:underline"
+              className="text-blue-600 hover:underline font-medium"
             >
               Sign in
             </Link>

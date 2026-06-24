@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { doctors } from "@/components/sections/DoctorsSection";
 
 const TIME_SLOTS = [
   "9:00 AM",
@@ -25,8 +24,6 @@ const TIME_SLOTS = [
 ];
 
 // ─── Calendar helpers ────────────────────────────────────────────────
-
-/** Convert "9:00 AM" → 9, "12:00 PM" → 12, etc. */
 function timeTo24h(timeStr: string): number {
   const [time, modifier] = timeStr.split(" ");
   let [hours] = time.split(":").map(Number);
@@ -35,7 +32,6 @@ function timeTo24h(timeStr: string): number {
   return hours;
 }
 
-/** Format a Date as YYYYMMDDTHHmmss for Google Calendar */
 function formatGoogleDateTime(
   dateStr: string,
   timeStr: string,
@@ -57,8 +53,7 @@ function getGoogleCalendarUrl(
   doctor: string,
 ): string {
   const start = formatGoogleDateTime(dateStr, timeStr);
-  const end = formatGoogleDateTime(dateStr, timeStr, 30); // 30‑min appointment
-
+  const end = formatGoogleDateTime(dateStr, timeStr, 30);
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: `Appointment with ${doctor}`,
@@ -66,14 +61,12 @@ function getGoogleCalendarUrl(
     details: "Your appointment at SmartClinic AI, Rawalpindi.",
     location: "Committee Chowk, Rawalpindi",
   });
-
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 function downloadIcsFile(dateStr: string, timeStr: string, doctor: string) {
   const start = formatGoogleDateTime(dateStr, timeStr);
   const end = formatGoogleDateTime(dateStr, timeStr, 30);
-
   const icsContent = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -88,18 +81,37 @@ function downloadIcsFile(dateStr: string, timeStr: string, doctor: string) {
     "END:VCALENDAR",
   ].join("\r\n");
 
-  const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+  // Use a data URI – works on iOS Safari
+  const dataUri =
+    "data:text/calendar;charset=utf-8," + encodeURIComponent(icsContent);
   const link = document.createElement("a");
-  link.href = url;
+  link.href = dataUri;
   link.download = "smartclinic-appointment.ics";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }
 
-// ─── Component ────────────────────────────────────────────────────────
+// ─── Doctor image with fallback ──────────────────────────────────────
+function getFallbackImage(name: string): string {
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=128&background=0D6EFD&color=fff&bold=true`;
+}
+
+function DoctorImage({ doc }: { doc: any }) {
+  const [src, setSrc] = useState(doc.img || getFallbackImage(doc.name));
+
+  return (
+    <Image
+      src={src}
+      alt={doc.name}
+      width={48}
+      height={48}
+      className="rounded-full"
+      onError={() => setSrc(getFallbackImage(doc.name))}
+      unoptimized
+    />
+  );
+}
 
 interface BookingModalProps {
   open: boolean;
@@ -120,11 +132,25 @@ export default function BookingModal({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
+  const [doctorsList, setDoctorsList] = useState<any[]>([]);
+  const [loadingDoctors, setLoadingDoctors] = useState(false);
+  // Fetch doctors from DB
+  useEffect(() => {
+    setLoadingDoctors(true);
+    fetch("/api/doctors")
+      .then((r) => r.json())
+      .then((data) => setDoctorsList(Array.isArray(data) ? data : []))
+      .catch(() => setDoctorsList([]))
+      .finally(() => setLoadingDoctors(false));
+  }, []);
 
-  // Reset form when modal opens/closes
+  // Reset on open
   useEffect(() => {
     if (open) {
       setStep(1);
@@ -135,12 +161,14 @@ export default function BookingModal({
       setPhone("");
       setEmail("");
       setBookedSlots([]);
+      setAvailableSlots([]);
       setLoadingSlots(false);
       setSubmitting(false);
       setDone(false);
-
+      setReviewing(false);
+      setErrors({});
       if (initialDoctor) {
-        const match = doctors.find(
+        const match = doctorsList.find(
           (d) =>
             d.name.toLowerCase().includes(initialDoctor.toLowerCase()) ||
             initialDoctor.toLowerCase().includes(d.name.toLowerCase()),
@@ -153,7 +181,49 @@ export default function BookingModal({
     }
   }, [open, initialDoctor]);
 
-  // Fetch booked slots
+  // Escape key to close
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && open) onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  // Fetch doctor's working hours when doctor is selected
+  useEffect(() => {
+    if (selectedDoctor) {
+      fetch(`/api/doctors?name=${encodeURIComponent(selectedDoctor)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const doc = Array.isArray(data)
+            ? data.find((d: any) => d.name === selectedDoctor)
+            : null;
+          if (doc) {
+            setAvailableSlots(
+              Array.isArray(doc.workingHours) ? doc.workingHours : [],
+            );
+          } else {
+            setAvailableSlots([]);
+          }
+        })
+        .catch(() =>
+          setAvailableSlots([
+            "9:00 AM",
+            "10:00 AM",
+            "11:00 AM",
+            "12:00 PM",
+            "2:00 PM",
+            "3:00 PM",
+            "4:00 PM",
+            "5:00 PM",
+            "6:00 PM",
+          ]),
+        );
+    }
+  }, [selectedDoctor]);
+
+  // Fetch slots when doctor & date selected
   useEffect(() => {
     if (selectedDoctor && selectedDate) {
       setLoadingSlots(true);
@@ -167,37 +237,58 @@ export default function BookingModal({
     }
   }, [selectedDoctor, selectedDate]);
 
-  // Clear time if it becomes booked
+  // Clear time if becomes booked
   useEffect(() => {
-    if (bookedSlots.includes(selectedTime)) {
-      setSelectedTime("");
-    }
+    if (bookedSlots.includes(selectedTime)) setSelectedTime("");
   }, [bookedSlots, selectedTime]);
 
   const handleSubmit = async () => {
-    if (!name || !phone || !selectedDoctor || !selectedDate || !selectedTime) {
-      toast.error("Please fill in all required fields.");
-      return;
-    }
+    const newErrors: { name?: string; phone?: string } = {};
+    if (!name.trim()) newErrors.name = "Full name is required.";
+    if (!phone.trim()) newErrors.phone = "Phone number is required.";
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
     setSubmitting(true);
+    // Re-check slot availability
+    try {
+      const slotsRes = await fetch(
+        `/api/appointments/slots?doctor=${encodeURIComponent(selectedDoctor)}&date=${selectedDate}`,
+      );
+      const slotsData = await slotsRes.json();
+      const currentlyBooked = slotsData.bookedSlots ?? [];
+      if (currentlyBooked.includes(selectedTime)) {
+        toast.error("This slot was just booked. Choose another time.");
+        setBookedSlots(currentlyBooked);
+        setSubmitting(false);
+        return;
+      }
+    } catch {}
+
     try {
       const res = await fetch("/api/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name,
-          phone,
-          email,
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
           doctor: selectedDoctor,
           date: selectedDate,
           time: selectedTime,
         }),
       });
+      if (res.status === 409) {
+        const data = await res.json();
+        toast.error(data.error || "Slot already booked.");
+        setSubmitting(false);
+        return;
+      }
       if (!res.ok) throw new Error("Booking failed");
       setDone(true);
       toast.success("Appointment booked successfully!");
     } catch {
-      toast.error("Failed to book appointment. Please try again.");
+      toast.error("Failed to book appointment.");
     } finally {
       setSubmitting(false);
     }
@@ -208,8 +299,14 @@ export default function BookingModal({
   const today = new Date().toISOString().split("T")[0];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
@@ -218,17 +315,14 @@ export default function BookingModal({
         </button>
 
         {done ? (
-          // ── Success screen (updated with calendar export) ──
           <div className="text-center py-10 space-y-4">
             <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-gray-900">
               Appointment Booked!
             </h3>
             <p className="text-gray-500 text-sm mb-4">
               {selectedDoctor} on {selectedDate} at {selectedTime}
             </p>
-
-            {/* Calendar export buttons */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Button
                 variant="outline"
@@ -256,24 +350,72 @@ export default function BookingModal({
                 <Download className="h-4 w-4 mr-1" /> Download .ics
               </Button>
             </div>
-
             <Button onClick={onClose} className="rounded-xl mt-4">
               Close
             </Button>
           </div>
+        ) : reviewing ? (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Confirm your appointment
+            </h3>
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Doctor</span>
+                <span className="font-medium">{selectedDoctor}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Date</span>
+                <span className="font-medium">{selectedDate}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Time</span>
+                <span className="font-medium">{selectedTime}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Name</span>
+                <span className="font-medium">{name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Phone</span>
+                <span className="font-medium">{phone}</span>
+              </div>
+              {email && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Email</span>
+                  <span className="font-medium">{email}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setReviewing(false)}
+                className="rounded-xl flex-1"
+              >
+                Edit details
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1"
+              >
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Confirm Booking"
+                )}
+              </Button>
+            </div>
+          </div>
         ) : (
-          // ── Booking steps (unchanged) ──
           <>
             {/* Step indicator */}
-            <div className="flex items-center gap-2 mb-6 text-sm font-medium">
+            <div className="flex items-center gap-1 mb-6 text-xs sm:text-sm font-medium">
               {[1, 2, 3].map((s) => (
                 <div key={s} className="flex items-center gap-2">
                   <span
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${
-                      step >= s
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-200 text-gray-500"
-                    }`}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${step >= s ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}
                   >
                     {step > s ? "✓" : s}
                   </span>
@@ -282,55 +424,58 @@ export default function BookingModal({
                   >
                     {s === 1 ? "Doctor" : s === 2 ? "Date/Time" : "Details"}
                   </span>
-                  {s < 3 && <div className="w-8 h-px bg-gray-300" />}
+                  {s < 3 && <div className="w-4 sm:w-8 h-px bg-gray-300" />}
                 </div>
               ))}
             </div>
 
-            {/* Step 1: Choose doctor */}
+            {/* Step 1 */}
             {step === 1 && (
               <div>
                 <h3 className="text-lg font-semibold mb-4">
                   Choose your doctor
                 </h3>
                 <div className="space-y-3">
-                  {doctors.map((doc) => (
-                    <button
-                      key={doc.name}
-                      onClick={() => {
-                        setSelectedDoctor(doc.name);
-                        setStep(2);
-                      }}
-                      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                        selectedDoctor === doc.name
-                          ? "border-blue-600 bg-blue-50"
-                          : "border-gray-200 hover:border-blue-300"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Image
-                          src={doc.img}
-                          alt={doc.name}
-                          width={48}
-                          height={48}
-                          className="rounded-full"
-                        />
-                        <div>
-                          <p className="font-semibold text-gray-900">
-                            {doc.name}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            {doc.specialty}
-                          </p>
+                  {loadingDoctors ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <span className="h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+                      <p className="text-sm text-gray-400">
+                        Loading doctors...
+                      </p>
+                    </div>
+                  ) : doctorsList.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8 text-sm">
+                      No doctors available.
+                    </p>
+                  ) : null}
+                  {!loadingDoctors &&
+                    doctorsList.map((doc) => (
+                      <button
+                        key={doc.name}
+                        onClick={() => {
+                          setSelectedDoctor(doc.name);
+                          setStep(2);
+                        }}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition-all ${selectedDoctor === doc.name ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <DoctorImage doc={doc} />
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              {doc.name}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {doc.specialty}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
 
-            {/* Step 2: Choose date & time */}
+            {/* Step 2 */}
             {step === 2 && (
               <div>
                 <h3 className="text-lg font-semibold mb-4">
@@ -340,7 +485,15 @@ export default function BookingModal({
                   type="date"
                   min={today}
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val && val < today) {
+                      toast.error("Please select today or a future date.");
+                      setSelectedDate(today);
+                      return;
+                    }
+                    setSelectedDate(val);
+                  }}
                   className="w-full border rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 {selectedDate && (
@@ -351,20 +504,14 @@ export default function BookingModal({
                       </div>
                     )}
                     <div className="grid grid-cols-3 gap-2">
-                      {TIME_SLOTS.map((slot) => {
+                      {availableSlots.map((slot) => {
                         const booked = bookedSlots.includes(slot);
                         return (
                           <button
                             key={slot}
                             disabled={booked}
                             onClick={() => setSelectedTime(slot)}
-                            className={`py-2 text-sm rounded-xl border transition-all ${
-                              selectedTime === slot
-                                ? "bg-blue-600 text-white border-blue-600"
-                                : booked
-                                  ? "bg-gray-100 text-gray-400 line-through border-gray-200 cursor-not-allowed"
-                                  : "border-gray-200 hover:border-blue-300"
-                            }`}
+                            className={`py-2 text-sm rounded-xl border transition-all ${selectedTime === slot ? "bg-blue-600 text-white border-blue-600" : booked ? "bg-gray-100 text-gray-400 line-through border-gray-200 cursor-not-allowed" : "border-gray-200 hover:border-blue-300"}`}
                           >
                             {slot}
                             {booked && (
@@ -402,30 +549,48 @@ export default function BookingModal({
               </div>
             )}
 
-            {/* Step 3: Patient info */}
+            {/* Step 3 */}
             {step === 3 && (
               <div>
                 <h3 className="text-lg font-semibold mb-4">Your details</h3>
-                <input
-                  type="text"
-                  placeholder="Full name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm mb-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-                <input
-                  type="tel"
-                  placeholder="Phone number (03XX-XXXXXXX)"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm mb-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                />
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (errors.name)
+                        setErrors({ ...errors, name: undefined });
+                    }}
+                    className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${errors.name ? "border-red-300 focus:ring-red-500" : "border-slate-200 focus:ring-blue-500"}`}
+                  />
+                  {errors.name && (
+                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                  )}
+                </div>
+                <div className="mb-3">
+                  <input
+                    type="tel"
+                    placeholder="Phone (03XX-XXXXXXX)"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (errors.phone)
+                        setErrors({ ...errors, phone: undefined });
+                    }}
+                    className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${errors.phone ? "border-red-300 focus:ring-red-500" : "border-slate-200 focus:ring-blue-500"}`}
+                  />
+                  {errors.phone && (
+                    <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
+                  )}
+                </div>
                 <input
                   type="email"
-                  placeholder="Email (optional — for confirmation)"
+                  placeholder="Email (optional)"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 <div className="flex gap-3">
                   <Button
@@ -436,15 +601,17 @@ export default function BookingModal({
                     Back
                   </Button>
                   <Button
-                    onClick={handleSubmit}
-                    disabled={submitting}
-                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => {
+                      const newErrors: { name?: string; phone?: string } = {};
+                      if (!name.trim()) newErrors.name = "Name required.";
+                      if (!phone.trim()) newErrors.phone = "Phone required.";
+                      setErrors(newErrors);
+                      if (Object.keys(newErrors).length > 0) return;
+                      setReviewing(true);
+                    }}
+                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1"
                   >
-                    {submitting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Book appointment"
-                    )}
+                    Review Booking
                   </Button>
                 </div>
               </div>

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import MobileNav from "@/components/layout/MobileNav";
@@ -24,14 +24,14 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-white">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-white pb-20 md:pb-0">
       <Navbar onBookClick={() => openBooking()} />
       <HeroSection
         onBookClick={() => openBooking()}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
-      <ServicesSection />
+      <ServicesSection searchQuery={searchQuery} />
       <DoctorsSection
         searchQuery={searchQuery}
         onBookClick={(name) => openBooking(name)}
@@ -39,47 +39,46 @@ export default function Home() {
       <SymptomCheckerSection onBookClick={(name) => openBooking(name)} />
       <TestimonialsSection />
       <Footer />
-      <MobileNav onBookClick={() => openBooking()} />
+
+      <MobileNav onBookClick={() => openBooking()} bookingOpen={bookingOpen} />
+
       <div className="md:hidden fixed bottom-20 right-4 z-30">
-        <Button
-          size="icon"
-          className="bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg h-12 w-12"
-          onClick={() => toast.info("Calling 03XX-XXXXXXX...")}
+        <a
+          href="tel:+923001234567"
+          className="bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg h-12 w-12 flex items-center justify-center transition-colors"
+          aria-label="Call clinic"
         >
           <Phone className="h-5 w-5" />
-        </Button>
+        </a>
       </div>
+
       <BookingModal
         open={bookingOpen}
         onClose={() => setBookingOpen(false)}
         initialDoctor={initialDoctor}
       />
 
-      {/* ───── JSON‑LD STRUCTURED DATA (LocalBusiness / MedicalClinic) ─────
-           Google uses this to display rich clinic information in search results.
-           Replace the dummy data marked with "← REPLACE" with your real clinic info.
-           This element is invisible to users. */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "MedicalClinic",
-            name: "SmartClinic AI",
-            url: "https://smart-clinic-three-tau.vercel.app", // ← REPLACE with your actual domain if different
-            logo: "https://smart-clinic-three-tau.vercel.app/logo.png", // ← Add a logo image in /public/logo.png
+            name: "MediBook Rawalpindi",
+            url: "https://smart-clinic-three-tau.vercel.app",
+            logo: "https://smart-clinic-three-tau.vercel.app/logo.png",
             description:
               "AI-powered clinic in Rawalpindi offering cardiology, general medicine, physiotherapy, and dermatology.",
             address: {
               "@type": "PostalAddress",
-              streetAddress: "Committee Chowk, Main Road", // ← REPLACE with your real street address
+              streetAddress: "Committee Chowk, Main Road",
               addressLocality: "Rawalpindi",
               addressRegion: "Punjab",
-              postalCode: "46000", // ← REPLACE if necessary
+              postalCode: "46000",
               addressCountry: "PK",
             },
-            telephone: "+92-300-1234567", // ← REPLACE with your real clinic phone
-            openingHours: "Mo-Sa 09:00-18:00", // ← Adjust if your timings differ
+            telephone: "+92-300-1234567",
+            openingHours: "Mo-Sa 09:00-18:00",
             priceRange: "PKR 1500–3000",
             medicalSpecialty: [
               "Cardiology",
@@ -89,8 +88,8 @@ export default function Home() {
             ],
             aggregateRating: {
               "@type": "AggregateRating",
-              ratingValue: "4.9", // ← Update later if you collect real ratings
-              reviewCount: "200", // ← Update later with actual review count
+              ratingValue: "4.9",
+              reviewCount: "200",
             },
           }),
         }}

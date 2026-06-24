@@ -1,147 +1,205 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
 import Doctor from "@/models/Doctor";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY!;
+
+// ── Current working free models on OpenRouter (June 2026) ─────────────
+const MODELS = [
+  "openrouter/free", // Auto-router — picks best available free model
+  "openai/gpt-oss-20b:free", // OpenAI open-weight 20B
+  "openai/gpt-oss-120b:free", // OpenAI open-weight 120B
+  "google/gemma-4-31b-it:free", // Google Gemma 4 31B
+  "nvidia/nemotron-3-super-120b-a12b:free", // NVIDIA Nemotron 3 Super
+  "nvidia/nemotron-nano-9b-v2:free", // NVIDIA Nemotron Nano 9B
+  "nvidia/nemotron-3-nano-30b-a3b:free", // NVIDIA Nemotron 3 Nano
+  "z-ai/glm-4.5-air:free", // GLM 4.5 Air
+  "moonshotai/kimi-k2.6:free", // Kimi K2.6
+  "openrouter/owl-alpha", // OpenRouter Owl Alpha
+];
 
 function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// ─── Keyword map – every new doctor’s specialty will be matched if a keyword
-//     points to a substring of their specialty name. ─────────────────────────
-const SYMPTOM_MAP: { keywords: string[]; specialtyMatch: string }[] = [
-  {
-    keywords: [
-      // general neurological symptoms
-      "headache",
-      "migraine",
-      "dizziness",
-      "dizzy",
-      "seizure",
-      "numbness",
-      "tingling",
-      "memory loss",
-      "blurred vision",
-      "fainting",
-      // nerve / brain / spine related
-      "nerve",
-      "neuro",
-      "neurosurgeon",
-      "neurosurgery",
-      "neurological",
-      "spinal",
-      "spine",
-      "brain",
-      // common misspellings (users often type these)
-      "nuero",
-      "neuro surgeion",
-      "nerve pain",
-    ],
-    specialtyMatch: "neuro",
-  },
-  {
-    keywords: [
-      "chest pain",
-      "chest tightness",
-      "palpitation",
-      "heart",
-      "blood pressure",
-      "shortness of breath",
-    ],
-    specialtyMatch: "cardio",
-  },
-  {
-    keywords: ["rash", "itch", "acne", "skin", "hair loss", "mole"],
-    specialtyMatch: "derma",
-  },
-  {
-    keywords: [
-      "back pain",
-      "joint pain",
-      "muscle",
-      "sprain",
-      "knee",
-      "shoulder pain",
-      "neck pain",
-    ],
-    specialtyMatch: "physio",
-  },
-  {
-    keywords: [
-      "fever",
-      "flu",
-      "cold",
-      "cough",
-      "sore throat",
-      "checkup",
-      "diabetes",
-      "hypertension",
-    ],
-    specialtyMatch: "general",
-  },
-  {
-    keywords: ["tooth", "teeth", "gum", "dental"],
-    specialtyMatch: "dent",
-  },
-  {
-    keywords: ["eye", "vision", "blurry"],
-    specialtyMatch: "ophthal",
-  },
-  {
-    keywords: ["child", "baby", "infant", "kid"],
-    specialtyMatch: "pediatr",
-  },
-];
+function sanitize(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/<[^>]*>/g, "").trim();
+}
 
-// ─── Build dynamic AI prompt ───────────────────────────────────────────
-async function buildSystemPrompt(): Promise<string> {
-  await dbConnect();
-  const doctors = await Doctor.find({ available: true }).lean();
+function sanitizeResult<T extends Record<string, unknown>>(obj: T): T {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    clean[key] = typeof value === "string" ? sanitize(value) : value;
+  }
+  return clean as T;
+}
 
+function romanUrduToEnglish(text: string): string {
+  const map: [RegExp, string][] = [
+    [/sar\s*dard|sir\s*dard/gi, "headache"],
+    [/bukhaar|bukhar|tapish/gi, "fever"],
+    [/khansi|khaansi/gi, "cough"],
+    [/gala\s*kharab|gale\s*mein\s*dard/gi, "sore throat"],
+    [/naak\s*band|nazla|zukam|zukaam/gi, "cold runny nose"],
+    [/pet\s*dard|pait\s*dard/gi, "stomach pain"],
+    [/ulti|qay/gi, "vomiting nausea"],
+    [/dast|loose\s*motion/gi, "diarrhea"],
+    [/seena\s*dard|sine\s*mein|seene\s*mein/gi, "chest pain"],
+    [/dil\s*ki\s*dhadkan|ghabrana/gi, "heart palpitation"],
+    [/kamar\s*dard/gi, "back pain"],
+    [/joron\s*mein\s*dard|jor\s*dard|ghutne/gi, "joint pain knee"],
+    [/gardan\s*dard/gi, "neck pain"],
+    [/ankh\s*dard|aankhon|nazar/gi, "eye vision"],
+    [/daant\s*dard|dant\s*dard|masooray/gi, "tooth dental"],
+    [/khujli|kharish/gi, "itch rash skin"],
+    [/sugar|shakar/gi, "diabetes"],
+    [/bp|blood\s*pressure/gi, "blood pressure hypertension"],
+    [/kamzori|thakaan/gi, "fatigue weakness"],
+    [/chakkar/gi, "dizziness vertigo"],
+    [/hamal|hamla|haml/gi, "pregnancy"],
+    [/masaan|gurday\s*pathri/gi, "kidney stone"],
+    [/dimag/gi, "brain neurological"],
+    [/haddi/gi, "bone fracture"],
+    [/sans\s*lene\s*mein\s*takleef|saans\s*phoolna/gi, "breathing difficulty"],
+    [/bacha|bachi|bacho/gi, "child baby"],
+  ];
+  let result = text;
+  for (const [pattern, replacement] of map) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+function buildDoctorKeywordHints(doctors: any[]): string {
+  const SPECIALTY_TO_CONDITIONS: [string[], string][] = [
+    [
+      ["cardio", "heart"],
+      "chest pain, heart disease, blood pressure, hypertension, palpitation, irregular heartbeat, angina, shortness of breath on exertion, ECG, echo",
+    ],
+    [
+      ["derma", "skin"],
+      "skin rash, itch, acne, eczema, psoriasis, hair loss, mole, skin allergy, hives, pigmentation, laser treatment, skin infection",
+    ],
+    [
+      ["physio", "rehabilit"],
+      "physiotherapy, rehabilitation, muscle strain, sport injury, posture, exercise therapy, mobility issues",
+    ],
+    [
+      ["ortho", "bone", "joint surgeon", "surgical orthop"],
+      "bone pain, joint pain, fracture, broken bone, arthritis, knee pain, hip pain, shoulder pain, back pain, spine surgery, sports injury, ligament tear",
+    ],
+    [
+      ["neuro", "brain"],
+      "headache, migraine, dizziness, seizure, epilepsy, numbness, tingling, nerve pain, paralysis, tremor, stroke, memory loss, brain tumor",
+    ],
+    [
+      ["gynae", "gynecol", "obstet", "women"],
+      "pregnancy, periods, menstrual pain, PCOS, PCOD, ovary, uterus, vaginal discharge, fertility, delivery, miscarriage, women health, hormonal issues",
+    ],
+    [
+      ["pediatr", "child"],
+      "child health, baby, infant, toddler, vaccination, growth problem, fever in children, child development",
+    ],
+    [
+      ["dental", "dentist", "oral", "maxillo"],
+      "tooth pain, teeth, gum disease, dental cavity, jaw pain, mouth ulcer, root canal, tooth extraction, braces",
+    ],
+    [
+      ["ophthal", "eye"],
+      "eye pain, vision blurry, glasses, cataract, retina, eye infection, eye allergy, sight problem, glaucoma",
+    ],
+    [
+      ["ent", "ear", "nose", "throat"],
+      "ear pain, hearing loss, tonsil, sinus, nasal, voice hoarse, throat infection, vertigo, ear wax",
+    ],
+    [
+      ["gastro", "liver", "hepato", "stomach"],
+      "stomach pain, liver disease, acid reflux, ulcer, bloating, IBS, constipation, diarrhea, nausea, jaundice, Hepatitis",
+    ],
+    [
+      ["urol", "kidney", "nephro"],
+      "urine problem, kidney stone, bladder, urinary infection, prostate, UTI, blood in urine, frequent urination",
+    ],
+    [
+      ["psychia", "psychol", "mental"],
+      "depression, anxiety, stress, panic attack, mental illness, mood disorder, insomnia, psychology, phobia",
+    ],
+    [
+      ["endocr", "thyroid", "diabet"],
+      "thyroid, diabetes, blood sugar, hormone imbalance, weight gain unexplained, metabolism, insulin",
+    ],
+    [
+      ["pulmo", "lung", "chest", "respirat"],
+      "lung disease, asthma, breathing difficulty, bronchitis, pneumonia, COPD, inhaler, chest infection, coughing blood",
+    ],
+    [
+      ["general", "physician", "medicine", "gp", "family"],
+      "fever, flu, cold, cough, sore throat, general checkup, fatigue, weakness, diabetes routine, hypertension routine, vomiting, body ache, viral infection",
+    ],
+    [
+      ["surgeon", "surgery", "surgical"],
+      "surgery needed, tumor, hernia, appendix, gallbladder, surgical procedure, operation",
+    ],
+  ];
+
+  const hints: string[] = [];
+  for (const doctor of doctors) {
+    const specLower = normalize(doctor.specialty);
+    for (const [fragments, conditions] of SPECIALTY_TO_CONDITIONS) {
+      if (fragments.some((f) => specLower.includes(f))) {
+        hints.push(`- "${doctor.name}" (${doctor.specialty}): ${conditions}`);
+        break;
+      }
+    }
+  }
+  return hints.join("\n");
+}
+
+function buildSystemPrompt(doctors: any[]): string {
   if (doctors.length === 0) {
-    return `You are a medical triage assistant for SmartClinic AI in Rawalpindi, Pakistan.
-No doctors are currently listed. Recommend a general physician and suggest booking an appointment.
-
-Respond ONLY with a valid JSON object. No markdown, no backticks, no explanation — raw JSON only.
-Format:
-{
-  "specialty": "string",
-  "recommendedDoctor": "string",
-  "urgency": "low" | "medium" | "high",
-  "summary": "string",
-  "selfCare": "string"
-}`;
+    return `You are a medical triage assistant. No doctors available. Return JSON only:
+{"specialty":"General Medicine","recommendedDoctor":"Please visit our clinic","urgency":"low","summary":"Please visit us directly.","selfCare":"Rest and stay hydrated."}`;
   }
 
   const doctorList = doctors
     .map(
-      (doc: any) =>
-        `- ${doc.name} — ${doc.specialty} (${doc.exp || "experienced"}) — Fee: ${doc.fee} PKR`,
+      (doc: any, i: number) =>
+        `${i + 1}. Name: "${doc.name}" | Specialty: "${doc.specialty}"`,
     )
     .join("\n");
 
-  return `You are a medical triage assistant for SmartClinic AI in Rawalpindi, Pakistan.
-The clinic has these doctors:
+  const conditionHints = buildDoctorKeywordHints(doctors);
+
+  return `You are a medical triage AI for MediBook Clinic, Rawalpindi, Pakistan.
+
+DOCTORS (pick ONLY from this list):
 ${doctorList}
 
-Given the patient's symptoms, respond ONLY with a valid JSON object. No markdown, no backticks, no explanation — raw JSON only.
+WHAT EACH DOCTOR TREATS:
+${conditionHints}
 
-Format:
+LANGUAGE RULE:
+- English input → English summary/selfCare
+- Roman Urdu input → Roman Urdu summary/selfCare
+- Urdu script → Urdu script summary/selfCare
+
+TASK: Match the patient's symptoms to the most relevant doctor from the list.
+"recommendedDoctor" must be copied EXACTLY from the list above.
+
+URGENCY: high=chest+arm pain/stroke/severe bleeding, medium=worsening 3+ days, low=mild/routine
+
+RESPOND WITH ONLY THIS JSON — no markdown, no extra text:
 {
-  "specialty": "string — medical specialty needed",
-  "recommendedDoctor": "string — exact doctor name from the list above, copied character-for-character",
-  "urgency": "low" | "medium" | "high",
-  "summary": "string — 1-2 sentence friendly explanation of why this doctor",
-  "selfCare": "string — one safe self-care tip while waiting for appointment"
+  "specialty": "exact specialty of chosen doctor",
+  "recommendedDoctor": "exact name from list",
+  "urgency": "low",
+  "summary": "1-2 sentences in patient's language",
+  "selfCare": "one safe tip in patient's language"
+}`;
 }
 
-If symptoms sound like a medical emergency (chest pain + left arm pain, difficulty breathing, stroke symptoms, severe bleeding), set urgency to "high" and summary should recommend going to an emergency room immediately.
-
-IMPORTANT: "recommendedDoctor" MUST be copied exactly from the list above, including "Dr." and punctuation. Always respond with ONLY the JSON object. Nothing else.`;
-}
-
-// ─── Call OpenRouter ──────────────────────────────────────────────────────
 async function callOpenRouter(
   model: string,
   message: string,
@@ -153,6 +211,8 @@ async function callOpenRouter(
       headers: {
         Authorization: `Bearer ${OPENROUTER_KEY}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://smart-clinic-three-tau.vercel.app",
+        "X-Title": "MediBook Clinic",
       },
       body: JSON.stringify({
         model,
@@ -160,158 +220,378 @@ async function callOpenRouter(
           { role: "system", content: systemPrompt },
           { role: "user", content: message },
         ],
-        temperature: 0.3,
-        max_tokens: 300,
+        temperature: 0.1,
+        max_tokens: 400,
       }),
     });
     if (!res.ok) {
-      console.error(
-        `[symptom-check] OpenRouter ${model} HTTP ${res.status}: ${await res.text()}`,
+      const err = await res.text().catch(() => "");
+      console.warn(
+        `[symptom-check] ${model} → HTTP ${res.status} ${err.slice(0, 100)}`,
       );
       return null;
     }
     const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || null;
-    if (!content) {
-      console.error(
-        `[symptom-check] OpenRouter ${model} returned no content:`,
-        JSON.stringify(data),
-      );
-    }
-    return content;
-  } catch (err) {
-    console.error(`[symptom-check] OpenRouter ${model} threw:`, err);
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.warn(`[symptom-check] ${model} → exception:`, e);
     return null;
   }
 }
 
-// ─── Dynamic keyword-based fallback ─────────────────────────────────────
-async function dynamicFallback(symptoms: string): Promise<object> {
-  await dbConnect();
-  const doctors: any[] = await Doctor.find({ available: true }).lean();
+function resolveDoctor(parsed: any, doctors: any[]): any | null {
+  const aiName = normalize(parsed.recommendedDoctor || "");
+  const aiSpec = normalize(parsed.specialty || "");
 
+  let m = doctors.find((d) => normalize(d.name) === aiName);
+  if (m) return m;
+
+  m = doctors.find((d) => {
+    const n = normalize(d.name);
+    return n.includes(aiName) || aiName.includes(n);
+  });
+  if (m) return m;
+
+  m = doctors.find((d) => normalize(d.specialty) === aiSpec);
+  if (m) return m;
+
+  m = doctors.find((d) => {
+    const s = normalize(d.specialty);
+    return s.includes(aiSpec) || aiSpec.includes(s);
+  });
+  if (m) return m;
+
+  m = doctors.find((d) => {
+    const dbWords = normalize(d.specialty)
+      .split(" ")
+      .filter((w) => w.length > 3);
+    const aiWords = aiSpec.split(" ").filter((w) => w.length > 3);
+    return dbWords.some((w) => aiWords.includes(w));
+  });
+  if (m) return m;
+
+  return null;
+}
+
+function keywordFallback(rawSymptoms: string, doctors: any[]): object {
   if (!doctors.length) {
     return {
       specialty: "General Medicine",
-      recommendedDoctor: "Please check our doctors list",
+      recommendedDoctor: "Please visit our clinic",
       urgency: "low",
-      summary: "No doctors are currently available. Please try again later.",
+      summary: "Please contact us directly for assistance.",
       selfCare: "Rest and stay hydrated.",
     };
   }
 
-  const symptomLower = normalize(symptoms);
+  const symptoms = normalize(romanUrduToEnglish(rawSymptoms));
 
-  // 1) Keyword → specialty mapping
-  let bestMatch: any = null;
-  for (const entry of SYMPTOM_MAP) {
-    if (entry.keywords.some((kw) => symptomLower.includes(kw))) {
-      const doc = doctors.find((d) =>
-        normalize(d.specialty).includes(entry.specialtyMatch),
-      );
-      if (doc) {
-        bestMatch = doc;
-        break;
-      }
+  const SPEC_SYMPTOM_KEYWORDS: [string[], string[]][] = [
+    [
+      ["cardio", "heart"],
+      [
+        "chest pain",
+        "chest tightness",
+        "heart",
+        "blood pressure",
+        "hypertension",
+        "palpitation",
+        "cardiac",
+        "angina",
+        "ecg",
+      ],
+    ],
+    [
+      ["derma", "skin"],
+      [
+        "skin",
+        "rash",
+        "itch",
+        "acne",
+        "hair loss",
+        "mole",
+        "eczema",
+        "psoriasis",
+        "hives",
+        "pigment",
+      ],
+    ],
+    [
+      ["physio", "rehabilit"],
+      [
+        "physiotherapy",
+        "rehabilitation",
+        "muscle strain",
+        "sport injury",
+        "posture",
+        "mobility",
+      ],
+    ],
+    [
+      ["ortho", "bone", "joint surg", "surgical ortho"],
+      [
+        "bone",
+        "joint",
+        "fracture",
+        "broken",
+        "arthritis",
+        "knee pain",
+        "hip pain",
+        "shoulder pain",
+        "spine",
+        "ligament",
+        "joints and bone",
+        "joint and bone",
+        "haddi",
+      ],
+    ],
+    [
+      ["neuro", "brain"],
+      [
+        "headache",
+        "migraine",
+        "dizzy",
+        "dizziness",
+        "seizure",
+        "numbness",
+        "tingling",
+        "nerve",
+        "brain",
+        "paralysis",
+        "tremor",
+        "stroke",
+        "memory",
+      ],
+    ],
+    [
+      ["gynae", "gynecol", "obstet", "women"],
+      [
+        "pregnancy",
+        "pregnant",
+        "period",
+        "menstrual",
+        "pcos",
+        "pcod",
+        "ovary",
+        "uterus",
+        "women",
+        "gynae",
+        "gynecol",
+        "fertility",
+        "delivery",
+        "hamal",
+      ],
+    ],
+    [
+      ["pediatr", "child"],
+      ["child", "baby", "infant", "toddler", "kid", "bacha", "bachi"],
+    ],
+    [
+      ["dental", "dentist", "oral"],
+      ["tooth", "teeth", "gum", "dental", "cavity", "jaw", "mouth ulcer"],
+    ],
+    [
+      ["ophthal", "eye"],
+      [
+        "eye",
+        "vision",
+        "blurry",
+        "sight",
+        "glasses",
+        "cataract",
+        "retina",
+        "ankh",
+      ],
+    ],
+    [
+      ["ent", "ear nose", "throat"],
+      ["ear", "hearing", "tonsil", "sinus", "nasal", "hoarse", "vertigo"],
+    ],
+    [
+      ["gastro", "liver", "hepato"],
+      [
+        "stomach",
+        "liver",
+        "acid reflux",
+        "ulcer",
+        "bloating",
+        "ibs",
+        "constipation",
+        "diarrhea",
+        "nausea",
+        "jaundice",
+      ],
+    ],
+    [
+      ["urol", "kidney", "nephro"],
+      ["urine", "kidney", "bladder", "urinary", "prostate", "stone", "uti"],
+    ],
+    [
+      ["psychia", "psychol", "mental"],
+      [
+        "depression",
+        "anxiety",
+        "stress",
+        "panic",
+        "mental",
+        "mood",
+        "insomnia",
+      ],
+    ],
+    [
+      ["endocr", "thyroid", "diabet"],
+      ["thyroid", "diabetes", "sugar", "hormone", "insulin", "weight gain"],
+    ],
+    [
+      ["pulmo", "lung", "respirat"],
+      [
+        "lung",
+        "asthma",
+        "breathing",
+        "bronchitis",
+        "pneumonia",
+        "copd",
+        "saans",
+      ],
+    ],
+    [
+      ["surgeon", "surgery", "surgical"],
+      ["surgery", "tumor", "hernia", "appendix", "gallbladder", "operation"],
+    ],
+    [
+      ["general", "physician", "medicine", "gp", "family"],
+      [
+        "fever",
+        "flu",
+        "cold",
+        "cough",
+        "sore throat",
+        "fatigue",
+        "weakness",
+        "checkup",
+        "vomiting",
+        "body ache",
+        "bukhaar",
+        "khansi",
+      ],
+    ],
+  ];
+
+  for (const [specFragments, symptomKeywords] of SPEC_SYMPTOM_KEYWORDS) {
+    const symptomHit = symptomKeywords.some((kw) => symptoms.includes(kw));
+    if (!symptomHit) continue;
+    const doctor = doctors.find((d) => {
+      const spec = normalize(d.specialty);
+      return specFragments.some((f) => spec.includes(f));
+    });
+    if (doctor) {
+      return {
+        specialty: doctor.specialty,
+        recommendedDoctor: doctor.name,
+        urgency: "low",
+        summary: `Based on your symptoms, ${doctor.name} (${doctor.specialty}) would be the right specialist to see.`,
+        selfCare:
+          "Rest, stay hydrated, and avoid strenuous activity until you see the doctor.",
+      };
     }
   }
 
-  // 2) Fallback: does the user literally mention a doctor's name or specialty?
-  if (!bestMatch) {
-    for (const doc of doctors) {
-      const nameLower = normalize(doc.name);
-      const specialtyLower = normalize(doc.specialty);
-      if (
-        symptomLower.includes(nameLower) ||
-        symptomLower.includes(specialtyLower)
-      ) {
-        bestMatch = doc;
-        break;
-      }
-    }
-  }
-
-  // 3) Last resort: General Physician if one exists, else first doctor
-  const chosen =
-    bestMatch ||
-    doctors.find((d) => normalize(d.specialty).includes("general")) ||
+  const fallback =
+    doctors.find((d) => /general|physician|medicine|gp/i.test(d.specialty)) ||
     doctors[0];
 
   return {
-    specialty: chosen.specialty,
-    recommendedDoctor: chosen.name,
+    specialty: fallback.specialty,
+    recommendedDoctor: fallback.name,
     urgency: "low",
-    summary: bestMatch
-      ? `${chosen.name} (${chosen.specialty}) appears to be the right specialist for your symptoms.`
-      : `We couldn't pinpoint a specialist from your description, so a ${chosen.specialty.toLowerCase()} is a safe starting point.`,
-    selfCare: "Rest, stay hydrated, and avoid strenuous activity.",
+    summary: `A ${fallback.specialty} can evaluate your symptoms and guide you to the right care.`,
+    selfCare: "Rest and stay hydrated.",
   };
 }
 
-// ─── Main handler ───────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+
+  if (!checkRateLimit(ip, 5)) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      { status: 429 },
+    );
+  }
+
   try {
-    const { symptoms } = await req.json();
-    if (
-      !symptoms ||
-      typeof symptoms !== "string" ||
-      symptoms.trim().length < 3
-    ) {
+    const body = await req.json();
+    const symptoms = sanitize(body.symptoms);
+
+    if (!symptoms || symptoms.length < 3) {
       return NextResponse.json(
         { error: "Please describe your symptoms." },
         { status: 400 },
       );
     }
 
-    const systemPrompt = await buildSystemPrompt();
+    await dbConnect();
+    const doctors: any[] = await Doctor.find({ available: true }).lean();
 
-    let aiReply = await callOpenRouter(
-      "google/gemini-2.0-flash-001",
-      symptoms,
-      systemPrompt,
-    );
-    if (!aiReply) {
-      aiReply = await callOpenRouter(
-        "meta-llama/llama-3-8b-instruct:free",
-        symptoms,
-        systemPrompt,
-      );
-    }
+    const translated = romanUrduToEnglish(symptoms);
+    const aiInput =
+      translated !== symptoms
+        ? `Patient wrote: "${symptoms}"\nMeaning: "${translated}"`
+        : symptoms;
 
-    if (aiReply) {
+    const systemPrompt = buildSystemPrompt(doctors);
+
+    let matched: any = null;
+    let parsedResult: any = null;
+
+    for (const model of MODELS) {
+      const aiReply = await callOpenRouter(model, aiInput, systemPrompt);
+      if (!aiReply) continue;
+
       try {
         const cleaned = aiReply.replace(/```json|```/g, "").trim();
         const parsed = JSON.parse(cleaned);
-        const availableDoctors = await Doctor.find({ available: true }).lean();
-        const matchedDoctor = availableDoctors.find(
-          (doc: any) =>
-            normalize(doc.name) === normalize(parsed.recommendedDoctor || ""),
-        );
+        const doctor = resolveDoctor(parsed, doctors);
 
-        if (matchedDoctor) {
-          return NextResponse.json({
-            ...parsed,
-            recommendedDoctor: matchedDoctor.name,
-            specialty: matchedDoctor.specialty,
-          });
+        if (doctor) {
+          matched = doctor;
+          parsedResult = parsed;
+          console.log(`[symptom-check] Success with model: ${model}`);
+          break;
         }
-
         console.warn(
-          `[symptom-check] AI recommended "${parsed.recommendedDoctor}" which doesn't match any doctor in DB — falling back.`,
+          `[symptom-check] ${model} returned unresolvable doctor: "${parsed.recommendedDoctor}"`,
         );
-      } catch (err) {
-        console.error("[symptom-check] Failed to parse AI JSON:", aiReply, err);
+      } catch {
+        console.warn(`[symptom-check] ${model} returned non-JSON, trying next`);
       }
-    } else {
-      console.warn(
-        "[symptom-check] Both AI models failed — using keyword fallback.",
+    }
+
+    if (matched && parsedResult) {
+      return NextResponse.json(
+        sanitizeResult({
+          specialty: matched.specialty,
+          recommendedDoctor: matched.name,
+          urgency: parsedResult.urgency || "low",
+          summary:
+            sanitize(parsedResult.summary) ||
+            `${matched.name} (${matched.specialty}) is the right specialist for your symptoms.`,
+          selfCare:
+            sanitize(parsedResult.selfCare) || "Rest and stay hydrated.",
+        }),
       );
     }
 
-    const fallback = await dynamicFallback(symptoms);
-    return NextResponse.json(fallback);
+    console.warn("[symptom-check] All models failed — using keyword fallback");
+    const fallback = keywordFallback(symptoms, doctors);
+    return NextResponse.json(
+      sanitizeResult(fallback as Record<string, unknown>),
+    );
   } catch (err) {
-    console.error("Symptom check error:", err);
+    console.error("[symptom-check] Error:", err);
     return NextResponse.json(
       { error: "Something went wrong. Please try again." },
       { status: 500 },
