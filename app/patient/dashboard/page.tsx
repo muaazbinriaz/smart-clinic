@@ -417,7 +417,6 @@ export default function PatientDashboard() {
 
   // No status === "loading" unmount – middleware handles auth
 
-  // WITH THIS:
   const now = new Date();
   const upcoming = appointments.filter((a) => {
     const d = parseAppointmentDate(a.date, a.time || "00:00");
@@ -542,7 +541,6 @@ export default function PatientDashboard() {
                       a.status !== "no-show" &&
                       a.status !== "completed" && (
                         <div className="flex flex-wrap gap-2">
-                          // WITH THIS:
                           {(() => {
                             const d = parseAppointmentDate(
                               a.date,
