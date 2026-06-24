@@ -42,16 +42,6 @@ export default function Home() {
 
       <MobileNav onBookClick={() => openBooking()} bookingOpen={bookingOpen} />
 
-      <div className="md:hidden fixed bottom-20 right-4 z-30">
-        <a
-          href="tel:+923001234567"
-          className="bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg h-12 w-12 flex items-center justify-center transition-colors"
-          aria-label="Call clinic"
-        >
-          <Phone className="h-5 w-5" />
-        </a>
-      </div>
-
       <BookingModal
         open={bookingOpen}
         onClose={() => setBookingOpen(false)}

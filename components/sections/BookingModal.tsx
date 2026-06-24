@@ -632,24 +632,44 @@ export default function BookingModal({
               {step === 2 && (
                 <div>
                   {/* Date input — mobile-friendly with visible calendar icon */}
+                  {/* Date input — always shows calendar icon + placeholder / selected date */}
                   <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                     Select Date
                   </label>
-                  <div className="relative mb-4">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-500">
-                      <Calendar className="h-4 w-4" />
-                    </div>
-                    <input
-                      type="date"
-                      ref={dateInputRef}
-                      min={today}
-                      value={selectedDate}
-                      onChange={(e) => handleDateChange(e.target.value)}
-                      onKeyDown={(e) => e.preventDefault()}
-                      className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer bg-white text-slate-700 transition-all"
-                      style={{ colorScheme: "light" }}
-                    />
-                  </div>
+
+                  {/* Hidden native date input (opens picker when triggered) */}
+                  <input
+                    ref={dateInputRef}
+                    type="date"
+                    min={today}
+                    value={selectedDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    className="sr-only"
+                    id="native-date-input"
+                  />
+
+                  {/* Visible trigger that looks like an input */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const input = document.getElementById(
+                        "native-date-input",
+                      ) as HTMLInputElement;
+                      input?.showPicker?.();
+                    }}
+                    className="w-full flex items-center gap-3 bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer"
+                  >
+                    <Calendar className="h-4 w-4 text-blue-500 shrink-0" />
+                    <span
+                      className={
+                        selectedDate ? "text-slate-900" : "text-slate-400"
+                      }
+                    >
+                      {selectedDate
+                        ? formatDisplayDate(selectedDate)
+                        : "mm/dd/yyyy"}
+                    </span>
+                  </button>
 
                   {selectedDate && (
                     <div className="flex items-center gap-2 mb-4 bg-blue-50 rounded-xl px-3 py-2">

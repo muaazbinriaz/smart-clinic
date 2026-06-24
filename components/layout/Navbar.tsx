@@ -176,6 +176,13 @@ export default function Navbar({ onBookClick }: NavbarProps) {
                 {session.user.name?.[0]?.toUpperCase() ?? "U"}
               </Link>
             )}
+            <a
+              href="tel:+923001234567"
+              aria-label="Call clinic"
+              className="h-9 w-9 flex items-center justify-center rounded-xl bg-green-50 text-green-600 hover:bg-green-100 active:bg-green-200 transition-colors"
+            >
+              <Phone className="h-4 w-4" strokeWidth={2} />
+            </a>
             <button
               className="flex items-center justify-center w-9 h-9 text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

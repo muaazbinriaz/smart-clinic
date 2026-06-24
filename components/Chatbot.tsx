@@ -154,7 +154,7 @@ export default function Chatbot() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-[72px] right-4 md:bottom-6 md:right-6 z-50 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl transition-all duration-200"
+        className="fixed bottom-[67px] right-4 md:bottom-6 md:right-6 z-50 bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 active:scale-95 text-white p-3.5 rounded-full shadow-xl shadow-blue-500/30 transition-all duration-200 animate-pulse-soft"
         aria-label={open ? "Close chat" : "Open chat"}
       >
         {open ? (
@@ -204,7 +204,7 @@ export default function Chatbot() {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"} message-bubble`}
               >
                 {msg.role === "assistant" && (
                   <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
@@ -287,7 +287,7 @@ export default function Chatbot() {
       {/* Desktop floating chat window (unchanged) */}
       <div
         className={`hidden md:block fixed z-50 transition-all duration-300 ease-out
-          bottom-24 right-6
+          bottom-20 right-6
           w-96
           ${open ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"}
         `}
@@ -326,7 +326,7 @@ export default function Chatbot() {
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"} message-bubble`}
               >
                 {msg.role === "assistant" && (
                   <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
@@ -407,6 +407,35 @@ export default function Chatbot() {
           </div>
         </div>
       </div>
+
+      {/* CSS for modern animations */}
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes softPulse {
+          0%,
+          100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.05);
+          }
+        }
+        .animate-pulse-soft {
+          animation: softPulse 2s infinite ease-in-out;
+        }
+        .message-bubble {
+          animation: fadeInUp 0.3s ease-out;
+        }
+      `}</style>
     </>
   );
 }
