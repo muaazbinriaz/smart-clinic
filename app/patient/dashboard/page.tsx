@@ -417,18 +417,25 @@ export default function PatientDashboard() {
 
   // No status === "loading" unmount – middleware handles auth
 
+  // WITH THIS:
   const now = new Date();
-  const upcoming = appointments.filter(
-    (a) =>
+  const upcoming = appointments.filter((a) => {
+    const d = parseAppointmentDate(a.date, a.time || "00:00");
+    return (
       a.status !== "cancelled" &&
       a.status !== "no-show" &&
-      parseAppointmentDate(a.date, a.time || "00:00") >= now,
-  );
-  const past = appointments.filter(
-    (a) =>
+      d !== null &&
+      d >= now
+    );
+  });
+  const past = appointments.filter((a) => {
+    const d = parseAppointmentDate(a.date, a.time || "00:00");
+    return (
       (a.status === "confirmed" || a.status === "completed") &&
-      parseAppointmentDate(a.date, a.time || "00:00") < now,
-  );
+      d !== null &&
+      d < now
+    );
+  });
   const cancelled = appointments.filter(
     (a) => a.status === "cancelled" || a.status === "no-show",
   );
@@ -535,8 +542,14 @@ export default function PatientDashboard() {
                       a.status !== "no-show" &&
                       a.status !== "completed" && (
                         <div className="flex flex-wrap gap-2">
-                          {parseAppointmentDate(a.date, a.time || "00:00") >=
-                            now && (
+                          // WITH THIS:
+                          {(() => {
+                            const d = parseAppointmentDate(
+                              a.date,
+                              a.time || "00:00",
+                            );
+                            return d !== null && d >= now;
+                          })() && (
                             <Button
                               size="sm"
                               variant="outline"
