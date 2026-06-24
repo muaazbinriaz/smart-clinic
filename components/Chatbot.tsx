@@ -90,6 +90,17 @@ export default function Chatbot() {
     }
   }, [open]);
 
+  // Lock body scroll when chat is open on mobile (full screen)
+  useEffect(() => {
+    if (open) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [open]);
+
   // Hide on admin pages (called AFTER all hooks)
   const isAdmin = pathname?.startsWith("/admin");
   if (isAdmin) return null;
@@ -153,11 +164,128 @@ export default function Chatbot() {
         )}
       </button>
 
-      {/* Chat window */}
+      {/* Mobile full-screen backdrop (covers everything, including bottom nav) */}
       <div
-        className={`fixed z-50 transition-all duration-300 ease-out
-          bottom-36 right-4 md:bottom-24 md:right-6
-          w-[calc(100vw-2rem)] sm:w-96
+        className={`fixed inset-0 z-[60] md:hidden transition-opacity duration-300
+          ${open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}
+        `}
+      >
+        <div className="absolute inset-0 bg-white flex flex-col h-[100dvh]">
+          {/* Mobile header */}
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3 flex items-center gap-3 shrink-0">
+            <div className="h-9 w-9 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <Stethoscope className="h-5 w-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm leading-tight">
+                SmartClinic Assistant
+              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
+                <p className="text-xs text-blue-100">
+                  Online · Replies instantly
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="p-2 rounded-full hover:bg-white/20 active:bg-white/30 transition-colors"
+              aria-label="Close chat"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Mobile messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 bg-gray-50 space-y-3">
+            {messages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {msg.role === "assistant" && (
+                  <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
+                    <Stethoscope className="h-3 w-3 text-blue-600" />
+                  </div>
+                )}
+                <div
+                  className={`max-w-[80%] text-sm px-3.5 py-2.5 rounded-2xl leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white rounded-br-sm"
+                      : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm"
+                  }`}
+                >
+                  {msg.role === "assistant" ? (
+                    <FormattedMessage text={msg.text} />
+                  ) : (
+                    msg.text
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex gap-2 justify-start">
+                <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <Stethoscope className="h-3 w-3 text-blue-600" />
+                </div>
+                <div className="flex items-center gap-1 px-4 py-3 bg-white border border-gray-200 rounded-2xl rounded-bl-sm shadow-sm">
+                  {[0, 150, 300].map((delay) => (
+                    <span
+                      key={delay}
+                      className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Mobile chips */}
+          {showChips && (
+            <div className="px-3 pt-2 pb-1.5 flex flex-wrap gap-1.5 shrink-0 bg-white border-t border-gray-100">
+              {CHIPS.map((chip) => (
+                <button
+                  key={chip.label}
+                  onClick={() => sendMessage(chip.query)}
+                  className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-3 py-1.5 hover:bg-blue-100 active:scale-95 transition-all"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Mobile input */}
+          <div className="px-3 py-2.5 border-t border-gray-200 flex gap-2 shrink-0 bg-white pb-[calc(env(safe-area-inset-bottom)+0.625rem)]">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !loading && sendMessage()}
+              placeholder="Ask in English, Roman Urdu or اردو..."
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
+              disabled={loading}
+            />
+            <Button
+              size="icon"
+              onClick={() => sendMessage()}
+              disabled={loading || !input.trim()}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl shrink-0 transition-all"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop floating chat window (unchanged) */}
+      <div
+        className={`hidden md:block fixed z-50 transition-all duration-300 ease-out
+          bottom-24 right-6
+          w-96
           ${open ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"}
         `}
       >
