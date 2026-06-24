@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import Chatbot from "@/components/Chatbot";
@@ -7,7 +7,12 @@ import { SessionProvider } from "next-auth/react";
 import PwaRegistration from "@/components/PwaRegistration";
 import PageLoader from "@/components/PageLoader";
 
-const inter = Inter({ subsets: ["latin"] });
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-jakarta",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://smart-clinic-three-tau.vercel.app"),
@@ -70,8 +75,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className} suppressHydrationWarning>
+    <html lang="en" className={plusJakartaSans.variable}>
+      <body
+        className={`${plusJakartaSans.className} antialiased`}
+        suppressHydrationWarning
+      >
         <SessionProvider>
           <PageLoader />
           <PwaRegistration />

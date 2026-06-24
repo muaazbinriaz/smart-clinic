@@ -2,11 +2,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import {
-  XCircle,
   CheckCircle2,
   Loader2,
   CalendarPlus,
   Download,
+  X,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -23,7 +24,7 @@ const TIME_SLOTS = [
   "6:00 PM",
 ];
 
-// ─── Calendar helpers ────────────────────────────────────────────────
+// ─── Calendar helpers ─────────────────────────────────────────────
 function timeTo24h(timeStr: string): number {
   const [time, modifier] = timeStr.split(" ");
   let [hours] = time.split(":").map(Number);
@@ -91,7 +92,7 @@ function downloadIcsFile(dateStr: string, timeStr: string, doctor: string) {
   document.body.removeChild(link);
 }
 
-// ─── Date helpers ────────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────
 function getTodayString(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -106,21 +107,31 @@ function isSunday(dateStr: string): boolean {
   return new Date(y, m - 1, d).getDay() === 0;
 }
 
-// Returns true if the slot time has already passed TODAY.
-// Only call this when selectedDate === today — future dates are never in the past.
 function isSlotInPast(timeStr: string): boolean {
   const now = new Date();
   const [time, modifier] = timeStr.split(" ");
   let [hours, minutes] = time.split(":").map(Number);
   if (modifier === "PM" && hours !== 12) hours += 12;
   if (modifier === "AM" && hours === 12) hours = 0;
-  // Add a 15-minute buffer so the current slot stays bookable briefly
   const slotMinutes = hours * 60 + (minutes || 0);
   const nowMinutes = now.getHours() * 60 + now.getMinutes() + 15;
   return slotMinutes <= nowMinutes;
 }
 
-// ─── Doctor image with fallback ──────────────────────────────────────
+// Format date for display: "Mon, 24 Jun 2026"
+function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString("en-PK", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ─── Doctor image with fallback ───────────────────────────────────
 function getFallbackImage(name: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=128&background=0D6EFD&color=fff&bold=true`;
 }
@@ -158,7 +169,6 @@ export default function BookingModal({
   onClose,
   initialDoctor,
 }: BookingModalProps) {
-  // FIX: useRef must be inside the component, not at module level
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(1);
@@ -178,7 +188,6 @@ export default function BookingModal({
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
 
-  // ── Fetch doctors once on mount ───────────────────────────────────
   useEffect(() => {
     setLoadingDoctors(true);
     fetch("/api/doctors")
@@ -188,7 +197,6 @@ export default function BookingModal({
       .finally(() => setLoadingDoctors(false));
   }, []);
 
-  // ── Reset every time modal opens ──────────────────────────────────
   useEffect(() => {
     if (open) {
       setStep(1);
@@ -205,10 +213,16 @@ export default function BookingModal({
       setDone(false);
       setReviewing(false);
       setErrors({});
+      // Prevent body scroll when modal open
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
     }
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [open]);
 
-  // ── Pre-select doctor once doctorsList is ready ───────────────────
   useEffect(() => {
     if (open && initialDoctor && doctorsList.length > 0) {
       const match = doctorsList.find(
@@ -228,7 +242,6 @@ export default function BookingModal({
     }
   }, [open, initialDoctor, doctorsList]);
 
-  // ── Escape key ────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && open) onClose();
@@ -237,7 +250,6 @@ export default function BookingModal({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  // ── Fetch booked slots ────────────────────────────────────────────
   const fetchBookedSlots = useCallback(
     async (doctorName: string, date: string) => {
       setLoadingSlots(true);
@@ -257,7 +269,6 @@ export default function BookingModal({
     [],
   );
 
-  // ── Select a doctor: load hours, clear date/time ──────────────────
   const handleDoctorSelect = (doc: any) => {
     setSelectedDoctor(doc.name);
     setSelectedDate("");
@@ -271,7 +282,6 @@ export default function BookingModal({
     setStep(2);
   };
 
-  // ── Date change: validate + clear time + re-fetch slots ──────────
   const handleDateChange = (val: string) => {
     if (!val) {
       setSelectedDate("");
@@ -302,7 +312,6 @@ export default function BookingModal({
     fetchBookedSlots(selectedDoctor, val);
   };
 
-  // ── If selected time becomes booked, clear it ─────────────────────
   useEffect(() => {
     if (selectedTime && bookedSlots.includes(selectedTime)) {
       setSelectedTime("");
@@ -310,7 +319,6 @@ export default function BookingModal({
     }
   }, [bookedSlots, selectedTime]);
 
-  // ── Submit ────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     const newErrors: { name?: string; phone?: string } = {};
     if (!name.trim()) newErrors.name = "Full name is required.";
@@ -336,7 +344,7 @@ export default function BookingModal({
         return;
       }
     } catch {
-      // Non-fatal — server will reject with 409 if slot was taken
+      // Non-fatal
     }
 
     try {
@@ -389,357 +397,451 @@ export default function BookingModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative"
+        className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] overflow-y-auto relative"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-        >
-          <XCircle className="h-5 w-5" />
-        </button>
-
-        {/* ── Done ─────────────────────────────────────────────────── */}
-        {done ? (
-          <div className="text-center py-10 space-y-4">
-            <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900">
-              Appointment Booked!
-            </h3>
-            <p className="text-gray-500 text-sm mb-4">
-              {selectedDoctor} on {selectedDate} at {selectedTime}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() =>
-                  window.open(
-                    getGoogleCalendarUrl(
-                      selectedDate,
-                      selectedTime,
-                      selectedDoctor,
-                    ),
-                    "_blank",
-                  )
-                }
-              >
-                <CalendarPlus className="h-4 w-4 mr-1" /> Add to Google Calendar
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() =>
-                  downloadIcsFile(selectedDate, selectedTime, selectedDoctor)
-                }
-              >
-                <Download className="h-4 w-4 mr-1" /> Download .ics
-              </Button>
+        {/* ── Modal header bar ─── */}
+        {!done && (
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+            <div>
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-0.5">
+                SmartClinic AI
+              </p>
+              <h2 className="text-base font-bold text-slate-900 leading-tight">
+                {done
+                  ? "Booking Confirmed"
+                  : reviewing
+                    ? "Review Booking"
+                    : step === 1
+                      ? "Choose Doctor"
+                      : step === 2
+                        ? "Select Date & Time"
+                        : "Your Details"}
+              </h2>
             </div>
-            <Button onClick={onClose} className="rounded-xl mt-4">
-              Close
-            </Button>
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all"
+              aria-label="Close modal"
+            >
+              <X className="h-4 w-4" strokeWidth={2.5} />
+            </button>
           </div>
-        ) : /* ── Review ───────────────────────────────────────────────── */
-        reviewing ? (
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Confirm your appointment
-            </h3>
-            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
-              {[
-                ["Doctor", selectedDoctor],
-                ["Date", selectedDate],
-                ["Time", selectedTime],
-                ["Name", name],
-                ["Phone", phone],
-                ...(email ? [["Email", email]] : []),
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between">
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-medium">{value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setReviewing(false)}
-                className="rounded-xl flex-1"
-                disabled={submitting}
-              >
-                Edit details
-              </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1"
-              >
-                {submitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  "Confirm Booking"
-                )}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          /* ── Steps ────────────────────────────────────────────────── */
-          <>
-            {/* Step indicator */}
-            <div className="flex items-center gap-1 mb-6 text-xs sm:text-sm font-medium">
-              {[1, 2, 3].map((s) => (
-                <div key={s} className="flex items-center gap-2">
-                  <span
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${
-                      step >= s
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-200 text-gray-500"
-                    }`}
-                  >
-                    {step > s ? "✓" : s}
-                  </span>
-                  <span
-                    className={step >= s ? "text-blue-600" : "text-gray-400"}
-                  >
-                    {s === 1 ? "Doctor" : s === 2 ? "Date/Time" : "Details"}
-                  </span>
-                  {s < 3 && <div className="w-4 sm:w-8 h-px bg-gray-300" />}
-                </div>
-              ))}
-            </div>
+        )}
 
-            {/* ── Step 1: Choose doctor ─────────────────────────────── */}
-            {step === 1 && (
+        <div className="p-5">
+          {/* ── Done ──────────────────────────────────────────────── */}
+          {done ? (
+            <div className="text-center py-8 space-y-4">
+              {/* Close button for done state */}
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={onClose}
+                  className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-all"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.5} />
+                </button>
+              </div>
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle2 className="h-9 w-9 text-green-500" />
+              </div>
               <div>
-                <h3 className="text-lg font-semibold mb-4">
-                  Choose your doctor
+                <h3 className="text-xl font-bold text-slate-900 mb-1">
+                  You're all set!
                 </h3>
-                <div className="space-y-3">
-                  {loadingDoctors ? (
-                    <div className="flex flex-col items-center justify-center py-10 gap-3">
-                      <span className="h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
-                      <p className="text-sm text-gray-400">
-                        Loading doctors...
-                      </p>
-                    </div>
-                  ) : doctorsList.length === 0 ? (
-                    <p className="text-center text-gray-400 py-8 text-sm">
-                      No doctors available.
-                    </p>
-                  ) : (
-                    doctorsList.map((doc) => (
-                      <button
-                        key={doc.name}
-                        onClick={() => handleDoctorSelect(doc)}
-                        className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                          selectedDoctor === doc.name
-                            ? "border-blue-600 bg-blue-50"
-                            : "border-gray-200 hover:border-blue-300"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <DoctorImage doc={doc} />
-                          <div>
-                            <p className="font-semibold text-gray-900">
-                              {doc.name}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              {doc.specialty}
-                            </p>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
+                <p className="text-slate-500 text-sm">
+                  Appointment booked with{" "}
+                  <span className="font-semibold text-slate-700">
+                    {selectedDoctor}
+                  </span>
+                </p>
+                <div className="inline-flex items-center gap-2 mt-3 bg-blue-50 text-blue-700 text-sm font-medium px-4 py-2 rounded-full">
+                  <Calendar className="h-4 w-4" />
+                  {formatDisplayDate(selectedDate)} · {selectedTime}
                 </div>
               </div>
-            )}
-
-            {/* ── Step 2: Date & time ───────────────────────────────── */}
-            {step === 2 && (
-              <div>
-                <h3 className="text-lg font-semibold mb-4">
-                  {selectedDoctor} — Choose date & time
-                </h3>
-
-                <input
-                  type="date"
-                  ref={dateInputRef}
-                  min={today}
-                  value={selectedDate}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  onKeyDown={(e) => e.preventDefault()}
-                  // FIX: null-check ref before calling showPicker
-                  onClick={() => dateInputRef.current?.showPicker()}
-                  className="w-full border rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                />
-
-                {selectedDate && isSunday(selectedDate) && (
-                  <p className="text-red-500 text-xs mb-3">
-                    We're closed on Sundays. Please choose another day.
-                  </p>
-                )}
-
-                {selectedDate && !isSunday(selectedDate) && (
-                  <div className="relative">
-                    {loadingSlots && (
-                      <div className="absolute inset-0 bg-white/70 flex items-center justify-center rounded-xl z-10">
-                        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                      </div>
+              <div className="flex flex-col gap-2.5 pt-2">
+                <Button
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white h-11"
+                  onClick={() =>
+                    window.open(
+                      getGoogleCalendarUrl(
+                        selectedDate,
+                        selectedTime,
+                        selectedDoctor,
+                      ),
+                      "_blank",
+                    )
+                  }
+                >
+                  <CalendarPlus className="h-4 w-4 mr-2" />
+                  Add to Google Calendar
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl h-11"
+                  onClick={() =>
+                    downloadIcsFile(selectedDate, selectedTime, selectedDoctor)
+                  }
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download .ics File
+                </Button>
+                <button
+                  onClick={onClose}
+                  className="text-sm text-slate-400 hover:text-slate-600 py-2 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          ) : reviewing ? (
+            /* ── Review ─────────────────────────────────────────── */
+            <div className="space-y-4">
+              <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
+                {[
+                  ["Doctor", selectedDoctor],
+                  ["Date", formatDisplayDate(selectedDate)],
+                  ["Time", selectedTime],
+                  ["Name", name],
+                  ["Phone", phone],
+                  ...(email ? [["Email", email]] : []),
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex justify-between items-center"
+                  >
+                    <span className="text-sm text-slate-400 font-medium">
+                      {label}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-800">
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => setReviewing(false)}
+                  className="rounded-xl flex-1 h-11"
+                  disabled={submitting}
+                >
+                  Edit
+                </Button>
+                <Button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1 h-11"
+                >
+                  {submitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Confirm Booking"
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            /* ── Steps ──────────────────────────────────────────── */
+            <>
+              {/* Step indicator */}
+              <div className="flex items-center mb-6">
+                {[1, 2, 3].map((s) => (
+                  <div key={s} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center gap-1">
+                      <span
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                          step > s
+                            ? "bg-blue-600 text-white"
+                            : step === s
+                              ? "bg-blue-600 text-white ring-4 ring-blue-100"
+                              : "bg-slate-100 text-slate-400"
+                        }`}
+                      >
+                        {step > s ? "✓" : s}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide ${
+                          step >= s ? "text-blue-600" : "text-slate-400"
+                        }`}
+                      >
+                        {s === 1 ? "Doctor" : s === 2 ? "Date/Time" : "Details"}
+                      </span>
+                    </div>
+                    {s < 3 && (
+                      <div
+                        className={`flex-1 h-0.5 mx-2 mb-5 rounded-full transition-all ${
+                          step > s ? "bg-blue-600" : "bg-slate-200"
+                        }`}
+                      />
                     )}
-                    {availableSlots.length === 0 ? (
-                      <p className="text-sm text-gray-400 py-4 text-center">
-                        No time slots configured for this doctor.
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Step 1: Choose doctor ────────────────────────── */}
+              {step === 1 && (
+                <div>
+                  <div className="space-y-3">
+                    {loadingDoctors ? (
+                      <div className="flex flex-col items-center justify-center py-10 gap-3">
+                        <span className="h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+                        <p className="text-sm text-slate-400">
+                          Loading doctors...
+                        </p>
+                      </div>
+                    ) : doctorsList.length === 0 ? (
+                      <p className="text-center text-slate-400 py-8 text-sm">
+                        No doctors available.
                       </p>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {availableSlots.map((slot) => {
-                          const booked = bookedSlots.includes(slot);
-                          // Disable slots that have already passed when today is selected
-                          const isPast =
-                            selectedDate === getTodayString() &&
-                            isSlotInPast(slot);
-                          const disabled = booked || isPast || loadingSlots;
-                          return (
-                            <button
-                              key={slot}
-                              disabled={disabled}
-                              onClick={() => !disabled && setSelectedTime(slot)}
-                              className={`py-2 text-sm rounded-xl border transition-all ${
-                                selectedTime === slot
-                                  ? "bg-blue-600 text-white border-blue-600"
-                                  : booked
-                                    ? "bg-gray-100 text-gray-400 line-through border-gray-200 cursor-not-allowed"
-                                    : isPast
-                                      ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
-                                      : "border-gray-200 hover:border-blue-300"
-                              }`}
-                            >
-                              {slot}
-                              {booked && (
-                                <span className="block text-xs text-red-400">
-                                  Full
-                                </span>
-                              )}
-                              {isPast && !booked && (
-                                <span className="block text-xs text-gray-300">
-                                  Passed
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      doctorsList.map((doc) => (
+                        <button
+                          key={doc.name}
+                          onClick={() => handleDoctorSelect(doc)}
+                          className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                            selectedDoctor === doc.name
+                              ? "border-blue-600 bg-blue-50"
+                              : "border-slate-100 hover:border-blue-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <DoctorImage doc={doc} />
+                            <div>
+                              <p className="font-bold text-slate-900 text-sm">
+                                {doc.name}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {doc.specialty}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      ))
                     )}
-                    {bookedSlots.length > 0 && (
-                      <p className="text-xs text-gray-400 mt-2">
-                        {bookedSlots.length} slot(s) already booked
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 2: Date & time ──────────────────────────── */}
+              {step === 2 && (
+                <div>
+                  {/* Date input — mobile-friendly with visible calendar icon */}
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Select Date
+                  </label>
+                  <div className="relative mb-4">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-500">
+                      <Calendar className="h-4 w-4" />
+                    </div>
+                    <input
+                      type="date"
+                      ref={dateInputRef}
+                      min={today}
+                      value={selectedDate}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                      onKeyDown={(e) => e.preventDefault()}
+                      className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer bg-white text-slate-700 transition-all"
+                      style={{ colorScheme: "light" }}
+                    />
+                  </div>
+
+                  {selectedDate && (
+                    <div className="flex items-center gap-2 mb-4 bg-blue-50 rounded-xl px-3 py-2">
+                      <Calendar className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      <span className="text-sm font-semibold text-blue-700">
+                        {formatDisplayDate(selectedDate)}
+                      </span>
+                      {isSunday(selectedDate) && (
+                        <span className="text-xs text-red-500 ml-auto">
+                          Closed Sundays
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedDate && !isSunday(selectedDate) && (
+                    <div className="relative">
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                        Select Time
+                      </label>
+                      {loadingSlots && (
+                        <div className="absolute inset-0 bg-white/70 flex items-center justify-center rounded-xl z-10">
+                          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                        </div>
+                      )}
+                      {availableSlots.length === 0 ? (
+                        <p className="text-sm text-slate-400 py-4 text-center">
+                          No time slots configured for this doctor.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          {availableSlots.map((slot) => {
+                            const booked = bookedSlots.includes(slot);
+                            const isPast =
+                              selectedDate === getTodayString() &&
+                              isSlotInPast(slot);
+                            const disabled = booked || isPast || loadingSlots;
+                            return (
+                              <button
+                                key={slot}
+                                disabled={disabled}
+                                onClick={() =>
+                                  !disabled && setSelectedTime(slot)
+                                }
+                                className={`py-2.5 text-sm font-medium rounded-xl border-2 transition-all ${
+                                  selectedTime === slot
+                                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                                    : booked
+                                      ? "bg-slate-50 text-slate-300 line-through border-slate-100 cursor-not-allowed"
+                                      : isPast
+                                        ? "bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed"
+                                        : "border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700"
+                                }`}
+                              >
+                                {slot}
+                                {booked && (
+                                  <span className="block text-[10px] text-red-400 font-normal">
+                                    Booked
+                                  </span>
+                                )}
+                                {isPast && !booked && (
+                                  <span className="block text-[10px] text-slate-300 font-normal">
+                                    Passed
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {bookedSlots.length > 0 && (
+                        <p className="text-xs text-slate-400 mt-2">
+                          {bookedSlots.length} slot(s) already booked today
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 mt-6">
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep(1)}
+                      className="rounded-xl h-11"
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      onClick={() => setStep(3)}
+                      disabled={!step2CanContinue}
+                      className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1 h-11"
+                    >
+                      Continue
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 3: Patient details ──────────────────────── */}
+              {step === 3 && (
+                <div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Ali Hassan"
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        if (errors.name)
+                          setErrors({ ...errors, name: undefined });
+                      }}
+                      className={`w-full border-2 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 outline-none transition-all ${
+                        errors.name
+                          ? "border-red-300 focus:ring-red-500"
+                          : "border-slate-200 focus:ring-blue-500 focus:border-blue-500"
+                      }`}
+                    />
+                    {errors.name && (
+                      <p className="text-red-500 text-xs mt-1 font-medium">
+                        {errors.name}
                       </p>
                     )}
                   </div>
-                )}
-
-                <div className="flex gap-3 mt-6">
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep(1)}
-                    className="rounded-xl"
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    onClick={() => setStep(3)}
-                    disabled={!step2CanContinue}
-                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Continue
-                  </Button>
+                  <div className="mb-3">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="03XX-XXXXXXX"
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        if (errors.phone)
+                          setErrors({ ...errors, phone: undefined });
+                      }}
+                      className={`w-full border-2 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 outline-none transition-all ${
+                        errors.phone
+                          ? "border-red-300 focus:ring-red-500"
+                          : "border-slate-200 focus:ring-blue-500 focus:border-blue-500"
+                      }`}
+                    />
+                    {errors.phone && (
+                      <p className="text-red-500 text-xs mt-1 font-medium">
+                        {errors.phone}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mb-5">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Email{" "}
+                      <span className="normal-case text-slate-400 font-normal">
+                        (optional)
+                      </span>
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep(2)}
+                      className="rounded-xl h-11"
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const newErrors: { name?: string; phone?: string } = {};
+                        if (!name.trim()) newErrors.name = "Name required.";
+                        if (!phone.trim()) newErrors.phone = "Phone required.";
+                        setErrors(newErrors);
+                        if (Object.keys(newErrors).length > 0) return;
+                        setReviewing(true);
+                      }}
+                      className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1 h-11"
+                    >
+                      Review Booking
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* ── Step 3: Patient details ───────────────────────────── */}
-            {step === 3 && (
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Your details</h3>
-                <div className="mb-3">
-                  <input
-                    type="text"
-                    placeholder="Full name"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      if (errors.name)
-                        setErrors({ ...errors, name: undefined });
-                    }}
-                    className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
-                      errors.name
-                        ? "border-red-300 focus:ring-red-500"
-                        : "border-slate-200 focus:ring-blue-500"
-                    }`}
-                  />
-                  {errors.name && (
-                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
-                  )}
-                </div>
-                <div className="mb-3">
-                  <input
-                    type="tel"
-                    placeholder="Phone (03XX-XXXXXXX)"
-                    value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value);
-                      if (errors.phone)
-                        setErrors({ ...errors, phone: undefined });
-                    }}
-                    className={`w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 outline-none ${
-                      errors.phone
-                        ? "border-red-300 focus:ring-red-500"
-                        : "border-slate-200 focus:ring-blue-500"
-                    }`}
-                  />
-                  {errors.phone && (
-                    <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
-                  )}
-                </div>
-                <input
-                  type="email"
-                  placeholder="Email (optional)"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep(2)}
-                    className="rounded-xl"
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      const newErrors: { name?: string; phone?: string } = {};
-                      if (!name.trim()) newErrors.name = "Name required.";
-                      if (!phone.trim()) newErrors.phone = "Phone required.";
-                      setErrors(newErrors);
-                      if (Object.keys(newErrors).length > 0) return;
-                      setReviewing(true);
-                    }}
-                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex-1"
-                  >
-                    Review Booking
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
