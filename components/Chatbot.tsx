@@ -302,12 +302,18 @@ export default function Chatbot() {
               <Stethoscope className="h-5 w-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm leading-tight">
+              <p
+                className="font-semibold text-sm leading-tight"
+                style={{ color: "#ffffff" }}
+              >
                 SmartClinic Assistant
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
-                <p className="text-xs text-blue-100">
+                <p
+                  className="text-xs text-blue-100"
+                  style={{ color: "#ffffff" }}
+                >
                   Online · Replies instantly
                 </p>
               </div>
